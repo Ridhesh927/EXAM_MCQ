@@ -1,0 +1,79 @@
+# Database Schema Report - Exam Portal
+
+## Database Overview
+- **System**: MySQL
+- **Database Name**: `exam_portal_v2`
+- **User**: `root`
+- **Host**: `localhost`
+
+---
+
+## 1. Entity Relationship Overview
+The system follows a relational model centered around Exams and Results.
+
+```mermaid
+erDiagram
+    TEACHERS ||--o{ EXAMS : creates
+    EXAMS ||--o{ EXAM_QUESTIONS : contains
+    EXAMS ||--o{ EXAM_RESULTS : has
+    STUDENTS ||--o{ EXAM_RESULTS : achieves
+```
+
+---
+
+## 2. Table Definitions
+
+### Table: `teachers`
+Stores administrative users who create and manage exams.
+- `id` (INT, PK, AUTO_INCREMENT): Primary key.
+- `username` (VARCHAR 255, UNIQUE): Unique identifier for login.
+- `email` (VARCHAR 255, UNIQUE): Unique contact email.
+- `password` (VARCHAR 255): Hashed credential.
+- `created_at` (TIMESTAMP): Creation record.
+
+### Table: `students`
+Stores student accounts and authorization details.
+- `id` (INT, PK, AUTO_INCREMENT): Primary key.
+- `username` (VARCHAR 255, UNIQUE, NULL): Handled during registration.
+- `email` (VARCHAR 255, UNIQUE, NULL): Unique student email.
+- `password` (VARCHAR 255, NULL): Hashed password (assigned during registration).
+- `prn_number` (VARCHAR 50, UNIQUE): Permanent Registration Number (used for authorization).
+- `created_at` (TIMESTAMP): Registration record.
+
+### Table: `exams`
+Stores metadata and configurations for individual exam modules.
+- `id` (INT, PK, AUTO_INCREMENT): Primary key.
+- `title` (VARCHAR 255): Descriptive name of the exam.
+- `subject` (VARCHAR 255): Academic subject.
+- `duration` (INT): Total time limit in minutes.
+- `total_marks` (INT): Maximum achievable score.
+- `passing_marks` (INT): Minimum score to pass.
+- `instructions` (TEXT): Guidelines for students.
+- `teacher_id` (INT, FK): Links to `teachers.id`.
+- `created_at` (TIMESTAMP): Record creation.
+
+### Table: `exam_questions`
+Contains the detailed MCQ repository for each exam.
+- `id` (INT, PK, AUTO_INCREMENT): Primary key.
+- `exam_id` (INT, FK): Links to `exams.id`.
+- `question` (TEXT): The actual question text.
+- `options` (JSON): A JSON array containing the possible choices.
+- `correct_answer` (INT): Integer index (0-3) indicating the correct option.
+- `marks` (INT): Weightage of the question.
+- `difficulty` (VARCHAR 50): Categorized as 'Easy', 'Medium', or 'High'.
+
+### Table: `exam_results`
+Captures the performance and records of finalized exam submissions.
+- `id` (INT, PK, AUTO_INCREMENT): Primary key.
+- `exam_id` (INT, FK): Links to `exams.id`.
+- `student_id` (INT, FK): Links to `students.id`.
+- `score` (INT): Final marks achieved by the student.
+- `completion_time` (INT): Time taken in seconds.
+- `submitted_at` (TIMESTAMP): Time of submission.
+
+---
+
+## 3. Data Integrity & Constraints
+- **Cascading Deletes**: All child tables (`exams`, `exam_questions`, `exam_results`) use `ON DELETE CASCADE` to ensure that removing a teacher or an exam cleans up all associated data.
+- **Unique Constraints**: Email, Username, and PRN Numbers are strictly unique to prevent duplicates and ensure login integrity.
+- **JSON Support**: The `options` field in `exam_questions` utilizes MySQL's JSON data type for flexible and efficient storage of multiple-choice options.

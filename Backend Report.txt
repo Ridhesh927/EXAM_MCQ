@@ -1,0 +1,69 @@
+# Backend Implementation Report - Exam Portal
+
+## Project Overview
+A robust Node.js and Express-based backend serving as the central hub for the Online Examination Portal. It manages authentication, examination logic, and real-time signaling for proctoring.
+
+## Tech Stack
+- **Runtime**: 
+- **Framework**: 
+- **Database**: MySQL (with `mysql2/promise` pool)
+- **Authentication**: JWT (JSON Web Tokens) & Bcrypt.js
+- **Real-time Engine**: Socket.io
+- **File Handling**: Multer & XLSX (for MCQ uploads)
+
+---
+
+## 1. Database Architecture
+The backend uses a structured relational schema in MySQL to ensure data integrity and performance.
+
+### Core Tables:
+- **`students`**: Stores credentials (hashed), email, and unique PRN numbers.
+- **`teachers`**: Manages teacher profiles and authentication.
+- **`exams`**: Primary exam metadata (Title, Subject, Duration, Marks, Instructions). Linked to a teacher.
+- **`exam_questions`**: Stores MCQ data including options (JSON format), correct answers, marks, and difficulty.
+- **`exam_results`**: Tracks student performance, scores, and completion times.
+
+---
+
+## 2. API Endpoint Structure
+
+### Authentication Module (`/api/auth`)
+- **Student Register**: Validates PRN before hashing password and creating a profile.
+- **Student Login**: Standard JWT-based authentication.
+- **Teacher Register/Login**: Secure access controls for exam administrators.
+
+### Teacher Exam Management (`/api/exams`)
+- **Exam Creation**: Supports manual entry and bulk XLSX/CSV question uploads.
+- **Exam Retrieval**: Provides detailed lists of created exams.
+- **Proctoring Access**: Authorization endpoints for live monitoring rooms.
+
+### Student Exam Workflow (`/api/student/exams`)
+- **Authorized Fetching**: Secured retrieval of exam content for authorized students.
+- **Submission Engine**: Logic for grading answers and calculating final scores in real-time.
+
+---
+
+## 3. Real-time Signaling System (`src/server.js`)
+The backend powers the **Live Proctoring** feature using Socket.io as a signaling server for WebRTC.
+
+- **Room Logic**: Dynamically creates "Exam Rooms" where teachers can connect to multiple student streams.
+- **WebRTC Signaling**:
+    - **Offer/Answer Exchange**: Relays SDDs between student and teacher browsers.
+    - **ICE Candidates**: Handles candidates to establish P2P connections across networks.
+- **Live Status Monitoring**:
+    - `student-joined`: Notifies teacher when a student enters the exam.
+    - `student-left`: Alerts teacher if a student disconnects or leaves.
+    - `teacher-ready`: Syncs state between teacher and students.
+
+---
+
+## 4. Security & Performance
+- **Password Hashing**: Bcrypt with 10 salt rounds.
+- **Route Protection**: JWT middleware ensures only authorized users can access sensitive endpoints.
+- **CORS Configuration**: Optimized for multi-device access (useful for local network testing).
+- **Auto-Initialization**: Code automatically sets up the database and required tables on the first run.
+
+
+#5. Session Management
+ When a Student logs in, a session is created and stored in the database. The session is used to track the student's progress through the exam and to ensure that the student is not logged in from multiple devices.
+ It Should have when student login , log out ,  when student leave the exam , how many warninng he gets which warning he gets , when exam start and end , how much time for one question which options he choose ,  
