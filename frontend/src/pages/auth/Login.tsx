@@ -23,17 +23,18 @@ const Login = () => {
     const demoTeacher = { email: 'teacher@demo.com', pass: 'Teacher@123' };
     const demoStudent = { ids: ['STU001', 'student@demo.com'], pass: 'Student@123' };
 
-    const trimmedIdentifier = identifier.trim();
+    const trimmedIdentifier = identifier.trim().toLowerCase();
     const trimmedPassword = password.trim();
 
     if (!isStudent) {
-      if (trimmedIdentifier === demoTeacher.email && trimmedPassword === demoTeacher.pass) {
+      if (trimmedIdentifier === demoTeacher.email.toLowerCase() && trimmedPassword === demoTeacher.pass) {
         navigate('/teacher/dashboard');
       } else {
         setError('Invalid teacher credentials. Use teacher@demo.com / Teacher@123');
       }
     } else {
-      if (demoStudent.ids.includes(trimmedIdentifier) && trimmedPassword === demoStudent.pass) {
+      const isDemoId = demoStudent.ids.some(id => id.toLowerCase() === trimmedIdentifier);
+      if (isDemoId && trimmedPassword === demoStudent.pass) {
         navigate('/student/dashboard');
       } else {
         setError('Invalid student credentials. Use STU001 or student@demo.com / Student@123');

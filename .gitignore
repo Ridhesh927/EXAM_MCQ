@@ -14,9 +14,7 @@ out/
 # IDE files
 .vscode/
 .idea/
-.Backend Report.txt
-.Frontend Report.txt
-.Backend Report.txt
+
 
 # OS files
 .DS_Store
