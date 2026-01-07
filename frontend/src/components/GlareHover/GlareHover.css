@@ -1,0 +1,49 @@
+.glare-hover {
+    position: relative;
+    width: var(--gh-width);
+    height: var(--gh-height);
+    background: var(--gh-bg);
+    border-radius: var(--gh-br);
+    border: 1px solid var(--gh-border);
+    overflow: hidden;
+}
+
+/* Use ::after for the glare flare so it's always on top of children */
+.glare-hover::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100;
+    pointer-events: none;
+    background: linear-gradient(var(--gh-angle),
+            transparent 0%,
+            transparent 40%,
+            var(--gh-rgba) 50%,
+            transparent 60%,
+            transparent 100%);
+    background-size: var(--gh-size) var(--gh-size);
+    background-repeat: no-repeat;
+    background-position: -200% -200%;
+    transition: background-position var(--gh-duration) ease;
+}
+
+.glare-hover:hover::after {
+    background-position: 300% 300%;
+}
+
+.glare-hover--play-once::after {
+    animation: flare-anim var(--gh-duration) ease forwards;
+}
+
+@keyframes flare-anim {
+    0% {
+        background-position: -200% -200%;
+    }
+
+    100% {
+        background-position: 300% 300%;
+    }
+}

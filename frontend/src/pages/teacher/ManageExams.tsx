@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
     Plus,
@@ -12,11 +13,21 @@ import { useNavigate } from 'react-router-dom';
 
 const ManageExams = () => {
     const navigate = useNavigate();
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('All');
+
     const exams = [
         { id: '1', title: 'Advanced Thermodynamics', subject: 'Physics', students: 42, date: '2025-05-12', status: 'Active' },
         { id: '2', title: 'Digital Logic Design', subject: 'CS', students: 128, date: '2025-05-15', status: 'Draft' },
         { id: '3', title: 'Renaissance Art History', subject: 'History', students: 56, date: '2025-05-18', status: 'Scheduled' },
     ];
+
+    const filteredExams = exams.filter(exam => {
+        const matchesSearch = exam.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            exam.subject.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesStatus = statusFilter === 'All' || exam.status === statusFilter;
+        return matchesSearch && matchesStatus;
+    });
 
     return (
         <DashboardLayout userType="teacher">
@@ -34,17 +45,28 @@ const ManageExams = () => {
                 <div className="table-actions neo-card">
                     <div className="search-bar">
                         <Search size={18} />
-                        <input type="text" placeholder="Search by title or subject..." />
+                        <input
+                            type="text"
+                            placeholder="Search by title or subject..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
                     </div>
                     <div className="filter-group">
-                        <button className="text-btn">All</button>
-                        <button className="text-btn active">Active</button>
-                        <button className="text-btn">Drafts</button>
+                        {['All', 'Active', 'Draft', 'Scheduled'].map(status => (
+                            <button
+                                key={status}
+                                className={`text-btn ${statusFilter === status ? 'active' : ''}`}
+                                onClick={() => setStatusFilter(status)}
+                            >
+                                {status === 'Draft' ? 'Drafts' : status}
+                            </button>
+                        ))}
                     </div>
                 </div>
 
                 <div className="exams-inventory">
-                    {exams.map((exam, i) => (
+                    {filteredExams.map((exam, i) => (
                         <motion.div
                             key={exam.id}
                             initial={{ opacity: 0, y: 10 }}
