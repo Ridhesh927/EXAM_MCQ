@@ -6,38 +6,58 @@
   --surface-low: #141416;
   --surface: #1c1c1f;
   --surface-high: #27272a;
-  
+
   --text-primary: #f4f4f5;
   --text-secondary: #a1a1aa;
   --text-muted: #52525b;
-  
-  --accent: #d97706; /* Burnt Amber */
+
+  --accent: #d97706;
+  /* Burnt Amber */
   --accent-soft: #451a03;
   --accent-text: #fef3c7;
-  
+
   --border: #27272a;
   --border-focus: #52525b;
-  
+
   --error: #ef4444;
   --success: #22c55e;
-  
+
   /* Typography */
   --font-display: 'Fraunces', serif;
   --font-body: 'Public Sans', sans-serif;
-  
+
   /* Spacing & Radii */
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  
+
   --transition-fast: 0.2s cubic-bezier(0.23, 1, 0.32, 1);
   --transition-normal: 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+[data-theme='light'] {
+  --bg: #f8fafc;
+  --surface-low: #f1f5f9;
+  --surface: #ffffff;
+  --surface-high: #e2e8f0;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+
+  --accent: #d97706;
+  --accent-soft: #ffedd5;
+  --accent-text: #9a3412;
+
+  --border: #e2e8f0;
+  --border-focus: #cbd5e1;
 }
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 body {
@@ -48,7 +68,7 @@ body {
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   overflow-x: hidden;
-  background-image: 
+  background-image:
     radial-gradient(circle at 50% -20%, var(--surface-low), transparent),
     url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
   background-repeat: repeat;
@@ -56,7 +76,10 @@ body {
   background-blend-mode: soft-light;
 }
 
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   font-family: var(--font-display);
   font-weight: 700;
   line-height: 1.1;
@@ -124,13 +147,16 @@ button {
 ::-webkit-scrollbar {
   width: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: var(--bg);
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--surface-high);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent);
 }
