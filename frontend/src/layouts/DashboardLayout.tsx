@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -7,8 +7,11 @@ import {
   LogOut,
   Bell,
   ShieldAlert,
-  TrendingUp
+  TrendingUp,
+  Settings
 } from 'lucide-react';
+
+import FloatingLines from '../components/FloatingLines/FloatingLines';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -17,14 +20,29 @@ interface DashboardLayoutProps {
 
 const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
   const navigate = useNavigate();
+  const [userName, setUserName] = useState(userType === 'student' ? 'Scholar Name' : 'Instructor Name');
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        if (user.name) setUserName(user.name);
+      } catch (e) {
+        console.error('Failed to parse user from localStorage');
+      }
+    }
+  }, []);
 
   const handleLogout = () => {
+    localStorage.removeItem('user');
     navigate('/login');
   };
 
   const navItems = userType === 'student' ? [
     { icon: <LayoutDashboard size={20} />, label: 'Overview', path: '/student/dashboard' },
     { icon: <BookOpen size={20} />, label: 'Available Exams', path: '/student/exams' },
+    { icon: <Settings size={20} />, label: 'Settings', path: '/student/settings' },
   ] : [
     { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/teacher/dashboard' },
     { icon: <BookOpen size={20} />, label: 'Manage Exams', path: '/teacher/exams' },
@@ -35,10 +53,15 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
   return (
     <div className="dashboard-root">
+      <FloatingLines
+        linesGradient={userType === 'student' ? ['#f97316', '#fb923c', '#fdba74'] : ['#22c55e', '#4ade80', '#86efac']}
+        lineCount={8}
+        animationSpeed={0.5}
+      />
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="brand-dot"></div>
-          <span>Portal</span>
+          <span>Online Examination</span>
         </div>
 
         <nav className="sidebar-nav">
@@ -68,14 +91,16 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
             <span className="text-muted">Academic Session: 2025-26</span>
           </div>
           <div className="header-actions">
-            <button className="icon-btn">
-              <Bell size={20} />
-              <span className="notification-dot"></span>
-            </button>
+            {userType === 'teacher' && (
+              <button className="icon-btn">
+                <Bell size={20} />
+                <span className="notification-dot"></span>
+              </button>
+            )}
             <div className="user-profile-brief">
-              <div className="avatar-placeholder">{userType === 'student' ? 'S' : 'T'}</div>
+              <div className="avatar-placeholder">{userName.charAt(0).toUpperCase()}</div>
               <div className="profile-info">
-                <p className="profile-name">{userType === 'student' ? 'Scholar Name' : 'Instructor Name'}</p>
+                <p className="profile-name">{userName}</p>
                 <p className="profile-role">{userType === 'student' ? 'Student' : 'Teacher'}</p>
               </div>
             </div>
@@ -92,6 +117,8 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           display: flex;
           min-height: 100vh;
           background: var(--bg);
+          position: relative;
+          overflow: hidden;
         }
 
         .sidebar {
@@ -106,12 +133,12 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
         }
 
         .sidebar-brand {
-          padding: 2.5rem;
+          padding: 2rem 1.5rem;
           display: flex;
           align-items: center;
           gap: 0.75rem;
           font-family: var(--font-display);
-          font-size: 1.5rem;
+          font-size: 1.25rem;
           font-weight: 700;
           color: var(--accent);
         }
@@ -183,12 +210,13 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
         .content-header {
           height: 80px;
-          padding: 0 2.5rem;
+          padding: 0 5rem 0 2.5rem;
           display: flex;
           align-items: center;
           justify-content: space-between;
           border-bottom: 1px solid var(--border);
-          background: rgba(12, 12, 13, 0.8);
+          background: var(--bg);
+          opacity: 0.95;
           backdrop-filter: blur(10px);
           position: sticky;
           top: 0;
@@ -222,7 +250,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           display: flex;
           align-items: center;
           gap: 0.75rem;
-          padding-left: 2rem;
+          padding-left: 1.5rem;
           border-left: 1px solid var(--border);
         }
 
@@ -238,7 +266,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           color: var(--accent);
         }
 
-        .profile-name { font-weight: 600; font-size: 0.875rem; }
+        .profile-name { font-weight: 600; font-size: 0.875rem; color: var(--text-primary); }
         .profile-role { color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
 
         .page-body {

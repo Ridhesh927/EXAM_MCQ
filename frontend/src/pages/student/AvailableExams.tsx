@@ -35,7 +35,7 @@ const AvailableExams = () => {
                                 </span>
                                 <div className="marks-badge">
                                     <span>Total Marks</span>
-                                    <strong>{exam.marks}</strong>
+                                    <strong>{exam.totalMarks}</strong>
                                 </div>
                             </div>
 
