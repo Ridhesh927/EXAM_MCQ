@@ -28,12 +28,22 @@ const Login = () => {
 
     if (!isStudent) {
       if (trimmedIdentifier === demoTeacher.email && trimmedPassword === demoTeacher.pass) {
+        localStorage.setItem('user', JSON.stringify({
+          name: 'Demo Teacher',
+          role: 'teacher',
+          email: demoTeacher.email
+        }));
         navigate('/teacher/dashboard');
       } else {
         setError('Invalid teacher credentials. Use teacher@demo.com / Teacher@123');
       }
     } else {
       if (demoStudent.ids.includes(trimmedIdentifier) && trimmedPassword === demoStudent.pass) {
+        localStorage.setItem('user', JSON.stringify({
+          name: 'Demo Student',
+          role: 'student',
+          identifier: trimmedIdentifier
+        }));
         navigate('/student/dashboard');
       } else {
         setError('Invalid student credentials. Use STU001 or student@demo.com / Student@123');
@@ -43,89 +53,91 @@ const Login = () => {
 
   return (
     <div className="auth-page">
-      <div className="auth-side-decor">
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.8 }}
-          className="auth-brand-content"
-        >
-          <h1>Exam<br />Portal</h1>
-          <p>
-            {isStudent
-              ? "A sanctuary for scholarly pursuit. Access your assessments and track your intellectual growth."
-              : "The command center for academic integrity. Engineer assessments and monitor progress."}
-          </p>
-        </motion.div>
+      <div className="auth-background">
+        <div className="glow-circle glow-1"></div>
+        <div className="glow-circle glow-2"></div>
+        <div className="glow-circle glow-3"></div>
       </div>
 
       <div className="auth-form-container">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="neo-card auth-card"
+          transition={{ duration: 0.8 }}
+          className="auth-title"
         >
-          <div className="auth-header">
-            <div className={`role-badge ${role}`}>{role}</div>
-            <h2>Sign In</h2>
-            <p className="text-secondary">Welcome back, {isStudent ? 'Student' : 'Teacher'}.</p>
-          </div>
+          <h1>DES Pune University</h1>
+          <p>Online Exam Portal</p>
+        </motion.div>
 
-          <form className="auth-form" onSubmit={handleLogin}>
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="auth-error"
-              >
-                <AlertCircle size={16} />
-                <span>{error}</span>
-              </motion.div>
-            )}
-
-            <div className="form-group">
-              <label>{isStudent ? 'Email or PRN' : 'Institutional Email'}</label>
-              <input
-                type="text"
-                className="neo-input"
-                placeholder={isStudent ? "e.g. STU001 or scholar@academy.edu" : "e.g. instructor@academy.edu"}
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                required
-              />
+        <div className="auth-card-wrapper">
+          <div className="auth-card-border-anim"></div>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="neo-card auth-card"
+          >
+            <div className="auth-header">
+              <h2>Sign In</h2>
+              <p style={{ color: '#a1a1aa' }}>Welcome back, {isStudent ? 'Student' : 'Teacher'}.</p>
             </div>
 
-            <div className="form-group">
-              <label>Password</label>
-              <div className="password-input-wrapper">
+            <form className="auth-form" onSubmit={handleLogin}>
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="auth-error"
+                >
+                  <AlertCircle size={16} />
+                  <span>{error}</span>
+                </motion.div>
+              )}
+
+              <div className="form-group">
+                <label>{isStudent ? 'Email or PRN' : 'Institutional Email'}</label>
                 <input
-                  type={showPassword ? "text" : "password"}
+                  type="text"
                   className="neo-input"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={isStudent ? "e.g. STU001 or scholar@academy.edu" : "e.g. instructor@academy.edu"}
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
                   required
                 />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
               </div>
+
+              <div className="form-group">
+                <label>Password</label>
+                <div className="password-input-wrapper">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    className="neo-input"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <button type="submit" className="neo-btn-primary auth-submit">
+                Access Dashboard <LogIn size={18} />
+              </button>
+            </form>
+
+            <div className="auth-footer">
+              <p>Credentials incorrect? <Link to="/">Return to Role Selection</Link></p>
             </div>
-
-            <button type="submit" className="neo-btn-primary auth-submit">
-              Access Dashboard <LogIn size={18} />
-            </button>
-          </form>
-
-          <div className="auth-footer">
-            <p>Credentials incorrect? <Link to="/">Return to Role Selection</Link></p>
-          </div>
-        </motion.div>
+          </motion.div>
+        </div>
       </div>
 
       <style>{`
@@ -134,82 +146,146 @@ const Login = () => {
           min-height: 100vh;
           width: 100%;
           background: var(--bg);
-        }
-
-        .auth-side-decor {
-          flex: 1;
-          display: flex;
+          position: relative;
+          overflow: hidden;
           align-items: center;
           justify-content: center;
-          padding: 4rem;
-          background: var(--surface-low);
-          border-right: 1px solid var(--border);
-          position: relative;
+        }
+
+        .auth-background {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
           overflow: hidden;
         }
 
-        .auth-side-decor::after {
-          content: "";
+        .glow-circle {
           position: absolute;
-          inset: 0;
-          background: radial-gradient(circle at 70% 30%, var(--accent-soft), transparent 70%);
-          opacity: 0.1;
+          border-radius: 50%;
+          filter: blur(80px);
+          opacity: 0.15;
+          animation: float 20s infinite alternate;
         }
 
-        .auth-brand-content h1 {
-          font-size: clamp(3rem, 10vw, 6rem);
-          margin-bottom: 2rem;
-          color: var(--accent);
-          font-family: var(--font-display);
-          line-height: 1;
+        .glow-1 {
+          width: 400px;
+          height: 400px;
+          background: var(--accent);
+          top: -100px;
+          left: -100px;
         }
 
-        .auth-brand-content p {
-          max-width: 400px;
-          font-size: 1.25rem;
-          color: var(--text-secondary);
-          line-height: 1.6;
+        .glow-2 {
+          width: 500px;
+          height: 500px;
+          background: var(--success);
+          bottom: -150px;
+          right: -100px;
+          animation-delay: -5s;
+        }
+
+        .glow-3 {
+          width: 300px;
+          height: 300px;
+          background: var(--accent);
+          top: 40%;
+          right: 20%;
+          animation-delay: -10s;
+        }
+
+        @keyframes float {
+          0% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(50px, 30px) scale(1.1); }
+          100% { transform: translate(-20px, 60px) scale(0.9); }
         }
 
         .auth-form-container {
-          flex: 1;
+          position: relative;
+          z-index: 1;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
           padding: 2rem;
+          width: 100%;
+          gap: 2rem;
+        }
+
+        .auth-title {
+          text-align: center;
+          color: var(--text-primary);
+        }
+
+        .auth-title h1 {
+          font-family: var(--font-display);
+          font-size: clamp(2rem, 5vw, 3.5rem);
+          margin-bottom: 0.5rem;
+          letter-spacing: -0.02em;
+        }
+
+        .auth-title p {
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.2em;
+          font-size: 0.875rem;
+          font-weight: 600;
+        }
+
+        .auth-card-wrapper {
+          position: relative;
+          padding: 4px;
+          border-radius: var(--radius-md);
+          overflow: hidden;
+          width: 100%;
+          max-width: 480px;
+        }
+
+        .auth-card-border-anim {
+          position: absolute;
+          top: -50%;
+          left: -50%;
+          width: 200%;
+          height: 200%;
+          background: conic-gradient(transparent, #f97316, transparent 30%);
+          animation: rotate 4s linear infinite;
+          opacity: 0.8;
+        }
+
+        @keyframes rotate {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
 
         .auth-card {
+          position: relative;
+          z-index: 1;
           width: 100%;
           max-width: 480px;
           padding: 3rem;
+          background: rgba(28, 28, 31, 0.95) !important;
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.1) !important;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
         }
+
 
         .auth-header {
-          margin-bottom: 2.5rem;
-          position: relative;
+          text-align: center;
+          margin-top: 2rem;
+          margin-bottom: 2rem;
         }
-
-        .role-badge {
-            position: absolute;
-            top: -1rem;
-            right: 0;
-            padding: 0.25rem 0.75rem;
-            border-radius: 4px;
-            font-size: 0.625rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            background: var(--surface-high);
-            border: 1px solid var(--border);
-        }
-
-        .role-badge.student { color: var(--accent); border-color: var(--accent); }
-        .role-badge.teacher { color: var(--success); border-color: var(--success); }
 
         .auth-header h2 {
           font-size: 2.5rem;
           margin-bottom: 0.5rem;
+          color: #f4f4f5 !important;
+        }
+
+        .neo-input::-ms-reveal,
+        .neo-input::-ms-clear,
+        .neo-input::-webkit-reveal,
+        .neo-input::-webkit-clear {
+          display: none;
         }
 
         .auth-form {
@@ -240,7 +316,7 @@ const Login = () => {
         .form-group label {
           font-size: 0.875rem;
           font-weight: 600;
-          color: var(--text-secondary);
+          color: #a1a1aa !important;
           text-transform: uppercase;
           letter-spacing: 0.05em;
         }
@@ -255,7 +331,7 @@ const Login = () => {
           top: 50%;
           transform: translateY(-50%);
           background: none;
-          color: var(--text-muted);
+          color: #71717a !important;
           border: none;
           cursor: pointer;
         }
@@ -286,9 +362,12 @@ const Login = () => {
             text-decoration: none;
         }
 
-        @media (max-width: 968px) {
-          .auth-side-decor {
-            display: none;
+        @media (max-width: 768px) {
+          .auth-card {
+            padding: 2rem;
+          }
+          .auth-header h2 {
+            font-size: 2rem;
           }
         }
       `}</style>

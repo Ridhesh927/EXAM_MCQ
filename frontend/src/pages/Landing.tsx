@@ -9,7 +9,7 @@ const Landing = () => {
         {
             id: 'student',
             title: 'Student',
-            description: 'Participate in assessments, track proficiency, and manage your academic trajectory.',
+            description: "Your gateway to DES Pune University's online examinations. Stay organized and perform your best in every assessment.",
             icon: <GraduationCap size={40} />,
             color: 'var(--accent)',
             path: '/login?role=student'
@@ -17,7 +17,7 @@ const Landing = () => {
         {
             id: 'teacher',
             title: 'Teacher',
-            description: 'Engineer complex assessments, monitor scholar integrity, and analyze performance metrics.',
+            description: "Empower the academic journey with advanced tools for secure assessment design, live monitoring, and insightful evaluation.",
             icon: <ShieldCheck size={40} />,
             color: 'var(--success)',
             path: '/login?role=teacher'
@@ -32,8 +32,6 @@ const Landing = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="brand"
                 >
-                    <div className="brand-dot"></div>
-                    <span>EXAM PORTAL</span>
                 </motion.div>
             </header>
 
@@ -44,8 +42,8 @@ const Landing = () => {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.8, ease: "easeOut" }}
                     >
-                        Precision In <br />
-                        <span className="text-accent">Assessment.</span>
+                        DES Pune University, Pune <br />
+                        <span style={{ fontSize: '0.6em', opacity: 0.8, color: 'var(--text-muted)' }}>Online Exam</span>
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0 }}
@@ -53,7 +51,6 @@ const Landing = () => {
                         transition={{ delay: 0.4 }}
                         className="hero-subtitle"
                     >
-                        An immersive environment for rigorous evaluation. Powered by AI, designed for integrity.
                     </motion.p>
                 </section>
 
@@ -63,7 +60,7 @@ const Landing = () => {
                             key={role.id}
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: 0.6 + (i * 0.2) }}
+                            transition={{ delay: 0.2 + (i * 0.2) }}
                             className="role-card-wrapper"
                             onClick={() => navigate(role.path)}
                         >

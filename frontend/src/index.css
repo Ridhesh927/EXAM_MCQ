@@ -143,6 +143,14 @@ button {
   transform: translateY(-2px);
 }
 
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
