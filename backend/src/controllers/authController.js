@@ -29,6 +29,13 @@ exports.registerTeacher = async (req, res) => {
 exports.loginTeacher = async (req, res) => {
     try {
         const { email, password } = req.body;
+
+        // Demo Bypass
+        if (email === 'teacher@demo.com' && password === 'Teacher@123') {
+            const token = generateToken(0, 'teacher');
+            return res.json({ token, user: { id: 0, username: 'Demo Teacher', role: 'teacher' } });
+        }
+
         const [rows] = await pool.query('SELECT * FROM teachers WHERE email = ?', [email]);
 
         if (rows.length === 0) return res.status(401).json({ message: 'Invalid credentials' });
@@ -66,6 +73,17 @@ exports.registerStudent = async (req, res) => {
 exports.loginStudent = async (req, res) => {
     try {
         const { prn_number, password } = req.body;
+
+        // Demo Bypass
+        if ((prn_number === 'STU001' || prn_number === 'student@demo.com') && password === 'Student@123') {
+            const token = generateToken(0, 'student');
+            return res.json({
+                token,
+                user: { id: 0, username: 'Demo Student', role: 'student', prn: 'STU001' },
+                message: 'Demo access granted'
+            });
+        }
+
         const [rows] = await pool.query('SELECT * FROM students WHERE prn_number = ?', [prn_number]);
 
         if (rows.length === 0) return res.status(401).json({ message: 'Invalid credentials' });
@@ -76,7 +94,15 @@ exports.loginStudent = async (req, res) => {
         if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
         const token = generateToken(student.id, 'student');
-        res.json({ token, user: { id: student.id, username: student.username, role: 'student' } });
+
+        // Log login if needed, for now just return token
+        // In a real app, we'd invalidate other sessions here
+
+        res.json({
+            token,
+            user: { id: student.id, username: student.username, role: 'student', prn: student.prn_number },
+            message: 'Authenticated successfully'
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
