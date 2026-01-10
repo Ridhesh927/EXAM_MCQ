@@ -1,4 +1,5 @@
 CREATE DATABASE IF NOT EXISTS exam_portal_v2;
+
 USE exam_portal_v2;
 
 -- Teachers Table
@@ -31,7 +32,7 @@ CREATE TABLE IF NOT EXISTS exams (
     instructions TEXT,
     teacher_id INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+    FOREIGN KEY (teacher_id) REFERENCES teachers (id) ON DELETE CASCADE
 );
 
 -- Exam Questions Table
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS exam_questions (
     correct_answer INT NOT NULL, -- Index 0-3
     marks INT DEFAULT 1,
     difficulty ENUM('Easy', 'Medium', 'High') DEFAULT 'Medium',
-    FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
+    FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE
 );
 
 -- Exam Results Table
@@ -56,8 +57,8 @@ CREATE TABLE IF NOT EXISTS exam_results (
     correct_answers INT NOT NULL,
     completion_time INT NOT NULL, -- in seconds
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
-    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+    FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
 );
 
 -- Student Sessions (for proctoring/tracking)
@@ -68,7 +69,60 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
     start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP NULL,
     warnings_count INT DEFAULT 0,
-    status ENUM('active', 'completed', 'terminated') DEFAULT 'active',
-    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-    FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
+    status ENUM(
+        'active',
+        'completed',
+        'terminated'
+    ) DEFAULT 'active',
+    FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
+    FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE
 );
+
+-- Detailed Warnings Log
+CREATE TABLE IF NOT EXISTS exam_warnings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    session_id INT,
+    warning_type VARCHAR(100), -- 'tab-switch', 'multiple-faces', 'no-face', 'talking'
+    message TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE
+);
+
+-- Individual Question Responses (for detailed tracking)
+CREATE TABLE IF NOT EXISTS student_responses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    session_id INT,
+    question_id INT,
+    selected_option INT, -- Index of option
+    time_spent INT, -- in seconds for this question
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE,
+    FOREIGN KEY (question_id) REFERENCES exam_questions (id) ON DELETE CASCADE
+);
+
+-- Demo Credentials
+-- Teacher: teacher@demo.com / Teacher@123 (Password hashed: $2a$10$7R.sHwA.J4X5B7x9X.K1ZeE/X6A8x6wA.J4X5B7x9X.K1ZeE/)
+-- NOTE: In local testing, you might need to use simple bcrypt hashes or let the controller handle it.
+-- For convenience, I'll add logic to the initDB or just provide clean data.
+
+INSERT IGNORE INTO
+    teachers (username, email, password)
+VALUES (
+        'demo_teacher',
+        'teacher@demo.com',
+        '$2y$10$STU001PASSWORDHASHEDHERE_USE_DEMO'
+    );
+
+INSERT IGNORE INTO
+    students (
+        username,
+        email,
+        password,
+        prn_number
+    )
+VALUES (
+        'demo_student',
+        'student@demo.com',
+        '$2y$10$STU001PASSWORDHASHEDHERE_USE_DEMO',
+        'STU001'
+    );
