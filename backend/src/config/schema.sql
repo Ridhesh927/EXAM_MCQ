@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS teachers (
     username VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
+    last_token TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS students (
     email VARCHAR(255) UNIQUE,
     password VARCHAR(255),
     prn_number VARCHAR(50) NOT NULL UNIQUE,
+    last_token TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -27,7 +29,13 @@ CREATE TABLE IF NOT EXISTS exams (
     title VARCHAR(255) NOT NULL,
     subject VARCHAR(255) NOT NULL,
     duration INT NOT NULL, -- in minutes
+    scheduled_start DATETIME,
     total_marks INT NOT NULL,
+    status ENUM(
+        'Draft',
+        'Published',
+        'Completed'
+    ) DEFAULT 'Published',
     passing_marks INT NOT NULL,
     instructions TEXT,
     teacher_id INT,

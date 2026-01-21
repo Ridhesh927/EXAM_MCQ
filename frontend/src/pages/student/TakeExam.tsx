@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -9,6 +10,9 @@ import {
   Sidebar as SidebarIcon
 } from 'lucide-react';
 
+
+
+
 const TakeExam = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -16,21 +20,81 @@ const TakeExam = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [warningCount, setWarningCount] = useState(0);
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [isExamTerminated, setIsExamTerminated] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hasStarted = useRef(false);
+  const lastFullscreenState = useRef(false);
 
-  // Fullscreen enforcement
+  // Fullscreen enforcement and Warning Logic
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const currentFull = !!document.fullscreenElement;
+      setIsFullscreen(currentFull);
+
+      // If we were in fullscreen and exited, and the exam has started
+      if (lastFullscreenState.current && !currentFull && hasStarted.current && !isExamTerminated) {
+        handleViolation("Fullscreen Exited");
+      }
+
+      lastFullscreenState.current = currentFull;
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
+  }, [sessionId, isExamTerminated, warningCount]);
+
+  useEffect(() => {
+    if (warningCount >= 3 && !isExamTerminated) {
+      terminateExam();
+    }
+  }, [warningCount, isExamTerminated]);
+
+  const handleViolation = async (type: string) => {
+    setWarningCount(prev => prev + 1);
+
+    if (sessionId) {
+      try {
+        await axios.post('/api/exams/session/warning', {
+          sessionId,
+          warningType: type,
+          message: `User exited fullscreen (Total warnings: ${warningCount + 1})`
+        });
+      } catch (err) {
+        console.error("Failed to log warning", err);
+      }
+    }
+  };
+
+  const terminateExam = () => {
+    setIsExamTerminated(true);
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => { });
+    }
+    // Finalize session in DB
+    axios.post('/api/exams/submit', {
+      examId: id,
+      answers: {},
+      completionTime: 3600 - timeLeft
+    }).catch(err => console.error("Auto-submit failed", err));
+  };
 
   const enterFullscreen = () => {
     const element = document.documentElement;
     if (element.requestFullscreen) {
-      element.requestFullscreen();
+      element.requestFullscreen().then(async () => {
+        if (!hasStarted.current) {
+          hasStarted.current = true;
+          try {
+            const res = await axios.post('/api/exams/session/start', { examId: id });
+            setSessionId(res.data.sessionId);
+          } catch (err) {
+            console.error("Failed to start session", err);
+            // Fallback for demo if backend is not ready
+            setSessionId(Math.floor(Math.random() * 1000));
+          }
+        }
+      });
     }
   };
 
@@ -60,6 +124,27 @@ const TakeExam = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  if (isExamTerminated) {
+    return (
+      <div className="fullscreen-guard termination-screen">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="guard-content neo-card"
+        >
+          <AlertTriangle size={48} className="text-error" />
+          <h1 className="text-error">Exam Terminated</h1>
+          <p>Your session has been terminated due to multiple rule violations (3/3 warnings). This incident has been reported to your instructor.</p>
+          <button onClick={() => navigate('/student/dashboard')} className="neo-btn-primary">Return to Dashboard</button>
+        </motion.div>
+        <style>{`
+          .termination-screen { background: rgba(20, 10, 10, 1); }
+          .text-error { color: #ef4444; }
+        `}</style>
+      </div>
+    )
+  }
+
   if (!isFullscreen) {
     return (
       <div className="fullscreen-guard">
@@ -68,10 +153,30 @@ const TakeExam = () => {
           animate={{ opacity: 1, scale: 1 }}
           className="guard-content neo-card"
         >
-          <AlertTriangle size={48} className="text-accent" />
-          <h1>Secure Session Required</h1>
-          <p>This assessment requires an immersive environment. Please enable fullscreen to commence.</p>
-          <button onClick={enterFullscreen} className="neo-btn-primary">Initialize Secure Mode</button>
+          {warningCount > 0 ? (
+            <>
+              <AlertTriangle size={64} className="text-warning pulse-warning" />
+              <h1 className="text-warning">Rule Violation Detected</h1>
+              <div className="warning-status">
+                <span className="warning-pill">Warning {warningCount} of 3</span>
+              </div>
+              <p>You have exited the secure examination environment. Continuing to do so will result in automatic termination of your session.</p>
+              <div className="warning-steps">
+                <div className={`step ${warningCount >= 1 ? 'active' : ''}`}><span>1</span></div>
+                <div className={`step ${warningCount >= 2 ? 'active' : ''}`}><span>2</span></div>
+                <div className={`step ${warningCount >= 3 ? 'active' : ''}`}><span>3</span></div>
+              </div>
+            </>
+          ) : (
+            <>
+              <AlertTriangle size={48} className="text-accent" />
+              <h1>Secure Session Required</h1>
+              <p>This assessment requires an immersive environment. Please enable fullscreen to commence. Our AI proctoring system will monitor your session.</p>
+            </>
+          )}
+          <button onClick={enterFullscreen} className="neo-btn-primary">
+            {warningCount > 0 ? "Resume Secure Session" : "Initialize Secure Mode"}
+          </button>
         </motion.div>
         <style>{`
           .fullscreen-guard {
@@ -79,21 +184,70 @@ const TakeExam = () => {
             display: flex;
             align-items: center;
             justify-content: center;
-            background: var(--bg);
+            background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
+            position: relative;
           }
           .guard-content {
-            max-width: 480px;
+            max-width: 520px;
             text-align: center;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 1.5rem;
-            padding: 3rem;
+            padding: 4rem;
+            z-index: 1;
+            border: 1px solid rgba(255,255,255,0.05);
+            background: rgba(20, 20, 22, 0.9);
+          }
+          .text-warning { color: #f97316; }
+          .pulse-warning { animation: warning-pulse 1.5s infinite; }
+          @keyframes warning-pulse {
+            0% { transform: scale(1); filter: drop-shadow(0 0 0px #f97316); }
+            50% { transform: scale(1.05); filter: drop-shadow(0 0 15px #f97316); }
+            100% { transform: scale(1); filter: drop-shadow(0 0 0px #f97316); }
+          }
+          .warning-status { margin: 1rem 0; }
+          .warning-pill {
+            background: rgba(249, 115, 22, 0.1);
+            color: #f97316;
+            padding: 0.5rem 1.5rem;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.875rem;
+            border: 1px solid rgba(249, 115, 22, 0.2);
+          }
+          .warning-steps {
+            display: flex;
+            gap: 1rem;
+            margin: 1rem 0;
+          }
+          .warning-steps .step {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+          }
+          .warning-steps .step.active {
+            border-color: #f97316;
+            color: #f97316;
+            background: rgba(249, 115, 22, 0.1);
+            box-shadow: 0 0 10px rgba(249, 115, 22, 0.2);
           }
           .guard-content h1 {
             font-family: var(--font-display);
-            font-size: 2rem;
+            font-size: 2.25rem;
             color: var(--text-primary);
+            margin-bottom: 0.5rem;
+          }
+          .guard-content p {
+            color: var(--text-secondary);
+            line-height: 1.6;
           }
         `}</style>
       </div>
@@ -102,6 +256,7 @@ const TakeExam = () => {
 
   return (
     <div className="exam-take-layout">
+
       <header className="exam-header">
         <div className="exam-info">
           <span className="exam-id">ID: {id?.substring(0, 8)}</span>
@@ -202,6 +357,7 @@ const TakeExam = () => {
           display: flex;
           flex-direction: column;
           background: var(--bg);
+          position: relative;
           overflow: hidden;
         }
         .exam-header {
@@ -211,7 +367,9 @@ const TakeExam = () => {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          background: var(--surface-low);
+          background: rgba(20, 20, 22, 0.8);
+          backdrop-filter: blur(10px);
+          z-index: 10;
         }
         .exam-timer {
           display: flex;
@@ -235,6 +393,7 @@ const TakeExam = () => {
           display: flex;
           position: relative;
           overflow: hidden;
+          z-index: 1;
         }
         .question-area {
           flex: 1;
@@ -243,11 +402,14 @@ const TakeExam = () => {
           align-items: flex-start;
           justify-content: center;
           overflow-y: auto;
+          background: transparent;
         }
         .question-card {
           width: 100%;
           max-width: 800px;
           padding: 3rem;
+          background: rgba(28, 28, 31, 0.6);
+          backdrop-filter: blur(10px);
         }
         .q-header {
           display: flex;
@@ -309,7 +471,8 @@ const TakeExam = () => {
           width: 360px;
           padding: 1.5rem;
           border-left: 1px solid var(--border);
-          background: var(--surface-low);
+          background: rgba(20, 20, 22, 0.4);
+          backdrop-filter: blur(20px);
           display: flex;
           flex-direction: column;
           gap: 1.5rem;

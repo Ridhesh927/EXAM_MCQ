@@ -46,6 +46,10 @@ exports.loginTeacher = async (req, res) => {
         if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
         const token = generateToken(teacher.id, 'teacher');
+
+        // Store last token
+        await pool.query('UPDATE teachers SET last_token = ? WHERE id = ?', [token, teacher.id]);
+
         res.json({ token, user: { id: teacher.id, username: teacher.username, role: 'teacher' } });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -95,8 +99,8 @@ exports.loginStudent = async (req, res) => {
 
         const token = generateToken(student.id, 'student');
 
-        // Log login if needed, for now just return token
-        // In a real app, we'd invalidate other sessions here
+        // Store last token
+        await pool.query('UPDATE students SET last_token = ? WHERE id = ?', [token, student.id]);
 
         res.json({
             token,

@@ -11,12 +11,14 @@ import {
   Settings
 } from 'lucide-react';
 
-import FloatingLines from '../components/FloatingLines/FloatingLines';
+
 
 interface DashboardLayoutProps {
   children: ReactNode;
   userType: 'student' | 'teacher';
 }
+
+
 
 const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
   const navigate = useNavigate();
@@ -53,11 +55,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
   return (
     <div className="dashboard-root">
-      <FloatingLines
-        linesGradient={userType === 'student' ? ['#f97316', '#fb923c', '#fdba74'] : ['#22c55e', '#4ade80', '#86efac']}
-        lineCount={8}
-        animationSpeed={0.5}
-      />
+
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="brand-dot"></div>
@@ -123,7 +121,8 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
         .sidebar {
           width: 280px;
-          background: var(--surface-low);
+          background: rgba(18, 18, 18, 0.4);
+          backdrop-filter: blur(20px);
           border-right: 1px solid var(--border);
           display: flex;
           flex-direction: column;
@@ -185,6 +184,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
         .sidebar-footer {
           padding: 1.5rem;
           border-top: 1px solid var(--border);
+          background: transparent;
         }
 
         .logout-btn {
@@ -206,6 +206,9 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           flex: 1;
           display: flex;
           flex-direction: column;
+          background: transparent;
+          position: relative;
+          z-index: 1;
         }
 
         .content-header {
@@ -215,7 +218,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           align-items: center;
           justify-content: space-between;
           border-bottom: 1px solid var(--border);
-          background: var(--bg);
+          background: transparent;
           opacity: 0.95;
           backdrop-filter: blur(10px);
           position: sticky;

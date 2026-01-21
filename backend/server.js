@@ -14,6 +14,8 @@ const io = new Server(server, {
     }
 });
 
+app.set('socketio', io);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
