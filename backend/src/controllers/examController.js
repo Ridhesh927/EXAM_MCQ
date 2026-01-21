@@ -55,12 +55,27 @@ exports.getTeacherExams = async (req, res) => {
 // Get Exam Details (for Student)
 exports.getExamDetails = async (req, res) => {
     try {
-        const [exam] = await pool.query('SELECT * FROM exams WHERE id = ?', [req.params.id]);
-        if (exam.length === 0) return res.status(404).json({ message: 'Exam not found' });
+        const [rows] = await pool.query('SELECT * FROM exams WHERE id = ?', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Exam not found' });
+
+        const exam = rows[0];
+
+        // Security Checks
+        if (exam.status !== 'Published') {
+            return res.status(403).json({ message: 'Exam is not yet published' });
+        }
+
+        if (exam.scheduled_start) {
+            const now = new Date();
+            const start = new Date(exam.scheduled_start);
+            if (now < start) {
+                return res.status(403).json({ message: `Exam is scheduled to start at ${exam.scheduled_start}` });
+            }
+        }
 
         const [questions] = await pool.query('SELECT id, question, options, marks, difficulty FROM exam_questions WHERE exam_id = ?', [req.params.id]);
 
-        res.json({ ...exam[0], questions });
+        res.json({ ...exam, questions });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -87,6 +102,12 @@ exports.submitExam = async (req, res) => {
         const [result] = await pool.query(
             'INSERT INTO exam_results (exam_id, student_id, score, total_questions, correct_answers, completion_time) VALUES (?, ?, ?, ?, ?, ?)',
             [examId, studentId, score, questions.length, correctCount, completionTime]
+        );
+
+        // Mark session as completed
+        await pool.query(
+            'UPDATE exam_sessions SET status = "completed", end_time = CURRENT_TIMESTAMP WHERE student_id = ? AND exam_id = ? AND status = "active"',
+            [studentId, examId]
         );
 
         res.json({ message: 'Exam submitted successfully', score, resultId: result.insertId });
@@ -138,6 +159,20 @@ exports.logWarning = async (req, res) => {
         );
 
         res.json({ message: 'Warning logged' });
+
+        // Emit real-time warning to teacher
+        const io = req.app.get('socketio');
+        if (io) {
+            const [session] = await pool.query('SELECT exam_id FROM exam_sessions WHERE id = ?', [sessionId]);
+            if (session.length > 0) {
+                io.to(`exam-${session[0].exam_id}`).emit('student-warning-alert', {
+                    userId: req.user.id,
+                    sessionId,
+                    warningType,
+                    message
+                });
+            }
+        }
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -167,6 +202,38 @@ exports.updateResponse = async (req, res) => {
         }
 
         res.json({ message: 'Response updated' });
+
+        // Emit real-time update to teacher
+        const io = req.app.get('socketio');
+        if (io) {
+            const [session] = await pool.query('SELECT exam_id FROM exam_sessions WHERE id = ?', [sessionId]);
+            if (session.length > 0) {
+                io.to(`exam-${session[0].exam_id}`).emit('student-progress-update', {
+                    sessionId,
+                    questionId,
+                    selectedOption,
+                    timeSpent,
+                    studentId: req.user.id
+                });
+            }
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get Active Sessions for an Exam (for Proctoring)
+exports.getActiveSessions = async (req, res) => {
+    try {
+        const { examId } = req.params;
+        const [rows] = await pool.query(`
+            SELECT es.*, s.username as student_name, s.prn_number,
+            (SELECT COUNT(*) FROM exam_warnings WHERE session_id = es.id) as warnings_count
+            FROM exam_sessions es 
+            JOIN students s ON es.student_id = s.id 
+            WHERE es.exam_id = ? AND es.status = 'active'
+        `, [examId]);
+        res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -201,14 +268,12 @@ exports.getDashboardStats = async (req, res) => {
 exports.uploadBulkQuestions = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+        const { examId } = req.body;
 
         const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const data = xlsx.utils.sheet_to_json(sheet);
-
-        // Expected columns: question, option1, option2, option3, option4, correct_answer, marks, difficulty
-        // correct_answer should be 0-3 (index) or 1-4 (then subtract 1)
 
         const questions = data.map(row => ({
             question: row.question,
@@ -217,6 +282,17 @@ exports.uploadBulkQuestions = async (req, res) => {
             marks: row.marks || 1,
             difficulty: row.difficulty || 'Medium'
         }));
+
+        if (examId) {
+            const questionValues = questions.map(q => [
+                examId, q.question, JSON.stringify(q.options), q.correct_answer, q.marks, q.difficulty
+            ]);
+            await pool.query(
+                'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty) VALUES ?',
+                [questionValues]
+            );
+            return res.json({ message: 'Questions uploaded and saved successfully', count: questions.length });
+        }
 
         res.json({ message: 'Questions parsed successfully', questions });
     } catch (error) {

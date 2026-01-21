@@ -10,6 +10,7 @@ router.post('/create', authMiddleware, roleMiddleware(['teacher']), examControll
 router.post('/upload-bulk', authMiddleware, roleMiddleware(['teacher']), upload.single('file'), examController.uploadBulkQuestions);
 router.get('/teacher/my-exams', authMiddleware, roleMiddleware(['teacher']), examController.getTeacherExams);
 router.get('/teacher/stats', authMiddleware, roleMiddleware(['teacher']), examController.getDashboardStats);
+router.get('/teacher/active-sessions/:examId', authMiddleware, roleMiddleware(['teacher']), examController.getActiveSessions);
 
 // Student routes
 router.get('/:id', authMiddleware, roleMiddleware(['student']), examController.getExamDetails);

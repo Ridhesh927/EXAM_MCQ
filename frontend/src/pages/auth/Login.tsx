@@ -4,6 +4,8 @@ import { motion } from 'framer-motion';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import Galaxy from '../../components/Galaxy/Galaxy';
 
+const STUDENT_HUE = 160;
+const TEACHER_HUE = 250;
 
 const Login = () => {
   const [searchParams] = useSearchParams();
@@ -58,7 +60,7 @@ const Login = () => {
       <Galaxy
         density={2}
         speed={0.4}
-        hueShift={isStudent ? 160 : 250}
+        hueShift={isStudent ? STUDENT_HUE : TEACHER_HUE}
         glowIntensity={0.6}
         mouseInteraction={true}
       />
@@ -156,53 +158,6 @@ const Login = () => {
           justify-content: center;
         }
 
-        .auth-background {
-          position: absolute;
-          inset: 0;
-          z-index: 0;
-          overflow: hidden;
-        }
-
-        .glow-circle {
-          position: absolute;
-          border-radius: 50%;
-          filter: blur(80px);
-          opacity: 0.15;
-          animation: float 20s infinite alternate;
-        }
-
-        .glow-1 {
-          width: 400px;
-          height: 400px;
-          background: var(--accent);
-          top: -100px;
-          left: -100px;
-        }
-
-        .glow-2 {
-          width: 500px;
-          height: 500px;
-          background: var(--success);
-          bottom: -150px;
-          right: -100px;
-          animation-delay: -5s;
-        }
-
-        .glow-3 {
-          width: 300px;
-          height: 300px;
-          background: var(--accent);
-          top: 40%;
-          right: 20%;
-          animation-delay: -10s;
-        }
-
-        @keyframes float {
-          0% { transform: translate(0, 0) scale(1); }
-          50% { transform: translate(50px, 30px) scale(1.1); }
-          100% { transform: translate(-20px, 60px) scale(0.9); }
-        }
-
         .auth-form-container {
           position: relative;
           z-index: 1;
@@ -272,10 +227,9 @@ const Login = () => {
           box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
         }
 
-
         .auth-header {
           text-align: center;
-          margin-top: 2rem;
+          margin-top: 1rem;
           margin-bottom: 2rem;
         }
 
@@ -283,13 +237,6 @@ const Login = () => {
           font-size: 2.5rem;
           margin-bottom: 0.5rem;
           color: #f4f4f5 !important;
-        }
-
-        .neo-input::-ms-reveal,
-        .neo-input::-ms-clear,
-        .neo-input::-webkit-reveal,
-        .neo-input::-webkit-clear {
-          display: none;
         }
 
         .auth-form {

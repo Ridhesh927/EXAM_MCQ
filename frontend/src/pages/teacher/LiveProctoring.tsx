@@ -1,3 +1,6 @@
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import { io } from 'socket.io-client';
 import { motion } from 'framer-motion';
 import {
     Users,
@@ -6,19 +9,99 @@ import {
     Filter,
     Monitor,
     Video,
-    VideoOff
+    VideoOff,
+    ExternalLink
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
+interface StudentSession {
+    id: number;
+    student_id: number;
+    student_name: string;
+    prn_number: string;
+    warnings_count: number;
+    status: string;
+    last_update?: string;
+    last_action?: string;
+}
+
 const LiveProctoring = () => {
-    const students = [
-        { id: 1, name: 'Alice Smith', status: 'secure', focus: 98, device: 'Desktop' },
-        { id: 2, name: 'Bob Johnson', status: 'warning', focus: 72, device: 'Laptop' },
-        { id: 3, name: 'Charlie Brown', status: 'critical', focus: 45, device: 'Tablet' },
-        { id: 4, name: 'Diana Prince', status: 'secure', focus: 95, device: 'Desktop' },
-        { id: 5, name: 'Ethan Hunt', status: 'secure', focus: 99, device: 'MacBook' },
-        { id: 6, name: 'Fiona Gallagher', status: 'warning', focus: 68, device: 'Desktop' },
-    ];
+    const [exams, setExams] = useState<any[]>([]);
+    const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
+    const [sessions, setSessions] = useState<StudentSession[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchExams = async () => {
+            try {
+                const res = await axios.get('/api/exams/teacher/my-exams');
+                setExams(res.data);
+                if (res.data.length > 0) setSelectedExamId(res.data[0].id);
+            } catch (err) {
+                console.error("Failed to fetch exams", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchExams();
+    }, []);
+
+    useEffect(() => {
+        if (!selectedExamId) return;
+
+        const fetchSessions = async () => {
+            try {
+                const res = await axios.get(`/api/exams/teacher/active-sessions/${selectedExamId}`);
+                setSessions(res.data);
+            } catch (err) {
+                console.error("Failed to fetch sessions", err);
+            }
+        };
+
+        fetchSessions();
+
+        const socket = io();
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+        socket.emit('join-room', {
+            examId: selectedExamId,
+            userId: user.id || 0,
+            role: 'teacher',
+            name: user.name || 'Teacher'
+        });
+
+        socket.on('student-connected', (data) => {
+            console.log("Student joined:", data);
+            fetchSessions(); // Refresh list
+        });
+
+        socket.on('student-warning-alert', (data) => {
+            console.log("Warning received:", data);
+            setSessions(prev => prev.map(s =>
+                s.id === data.sessionId ? { ...s, warnings_count: s.warnings_count + 1, last_action: data.warningType } : s
+            ));
+        });
+
+        socket.on('student-progress-update', (data) => {
+            setSessions(prev => prev.map(s =>
+                s.id === data.sessionId ? { ...s, last_action: `Answered Q${data.questionId}`, last_update: new Date().toLocaleTimeString() } : s
+            ));
+        });
+
+        socket.on('student-disconnected', (data) => {
+            setSessions(prev => prev.filter(s => s.student_id !== data.userId));
+        });
+
+        return () => {
+            socket.disconnect();
+        };
+    }, [selectedExamId]);
+
+    const getStatusType = (warnings: number) => {
+        if (warnings >= 3) return 'critical';
+        if (warnings > 0) return 'warning';
+        return 'secure';
+    };
 
     return (
         <DashboardLayout userType="teacher">
@@ -27,47 +110,67 @@ const LiveProctoring = () => {
                     <div className="header-meta">
                         <h1>Live Invigilation</h1>
                         <div className="active-stats">
-                            <div className="stat"><Users size={16} /> 124 Active</div>
-                            <div className="stat warn"><ShieldAlert size={16} /> 3 Flagged</div>
+                            <div className="stat"><Users size={16} /> {sessions.length} Active</div>
+                            <div className="stat warn"><ShieldAlert size={16} /> {sessions.filter(s => s.warnings_count > 0).length} Flagged</div>
                         </div>
                     </div>
 
                     <div className="header-filters">
+                        <select
+                            className="neo-select"
+                            value={selectedExamId || ''}
+                            onChange={(e) => setSelectedExamId(Number(e.target.value))}
+                            style={{ padding: '0.6rem 1rem', background: 'var(--surface-low)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)' }}
+                        >
+                            <option value="" disabled>Select Exam to Monitor</option>
+                            {exams.map(exam => (
+                                <option key={exam.id} value={exam.id}>{exam.title}</option>
+                            ))}
+                        </select>
                         <div className="search-box">
                             <Search size={18} />
                             <input type="text" placeholder="Filter by Name or PRN..." />
                         </div>
-                        <button className="icon-btn-outline"><Filter size={18} /></button>
                     </div>
                 </header>
 
                 <div className="monitoring-grid">
-                    {students.map((student, i) => (
+                    {sessions.length === 0 && !loading && (
+                        <div className="no-sessions neo-card" style={{ gridColumn: '1/-1', padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <Users size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
+                            <h3>No active sessions found for this exam</h3>
+                            <p>Waiting for students to join...</p>
+                        </div>
+                    )}
+                    {sessions.map((session, i) => (
                         <motion.div
-                            key={student.id}
+                            key={session.id}
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             transition={{ delay: i * 0.05 }}
-                            className={`proctor-feed neo-card ${student.status}`}
+                            className={`proctor-feed neo-card ${getStatusType(session.warnings_count)}`}
                         >
                             <div className="feed-video">
                                 <div className="video-placeholder">
-                                    {student.status === 'critical' ? <VideoOff size={48} /> : <Video size={48} />}
+                                    {session.warnings_count >= 3 ? <VideoOff size={48} /> : <Video size={48} />}
                                 </div>
                                 <div className="feed-overlay">
-                                    <span className="device-tag"><Monitor size={12} /> {student.device}</span>
-                                    <span className="focus-tag">{student.focus}% Focus</span>
+                                    <span className="device-tag"><Monitor size={12} /> Live</span>
+                                    <span className="focus-tag">Warnings: {session.warnings_count}/3</span>
                                 </div>
                             </div>
 
                             <div className="feed-info">
                                 <div className="student-brief">
-                                    <span className="student-name">{student.name}</span>
-                                    <span className="status-label">{student.status}</span>
+                                    <span className="student-name">{session.student_name}</span>
+                                    <span className="status-label">{getStatusType(session.warnings_count)}</span>
+                                </div>
+                                <div className="last-action" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    {session.last_action || 'Session Active'} {session.last_update && `at ${session.last_update}`}
                                 </div>
                                 <div className="feed-actions">
                                     <button className="small-btn">View Log</button>
-                                    <button className="small-btn warn">Intervene</button>
+                                    <button className="small-btn warn">Suspend</button>
                                 </div>
                             </div>
                         </motion.div>
