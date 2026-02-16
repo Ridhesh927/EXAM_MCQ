@@ -62,7 +62,7 @@ const ViewResults = () => {
                             <Search size={18} />
                             <input type="text" placeholder="Search by student or exam..." />
                         </div>
-                        <button className="filter-btn"><Filter size={18} /> Filters</button>
+                        <button className="neo-btn-secondary"><Filter size={18} /> Filters</button>
                     </div>
 
                     <table className="results-table">

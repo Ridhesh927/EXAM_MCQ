@@ -113,7 +113,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
       <style>{`
         .dashboard-root {
           display: flex;
-          min-height: 100vh;
+          height: 100vh;
           background: var(--bg);
           position: relative;
           overflow: hidden;
@@ -121,14 +121,13 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
         .sidebar {
           width: 280px;
-          background: rgba(18, 18, 18, 0.4);
+          background: var(--sidebar-bg);
           backdrop-filter: blur(20px);
           border-right: 1px solid var(--border);
           display: flex;
           flex-direction: column;
-          position: sticky;
-          top: 0;
           height: 100vh;
+          flex-shrink: 0;
         }
 
         .sidebar-brand {
@@ -209,6 +208,8 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           background: transparent;
           position: relative;
           z-index: 1;
+          height: 100vh;
+          overflow-y: auto;
         }
 
         .content-header {
@@ -218,7 +219,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           align-items: center;
           justify-content: space-between;
           border-bottom: 1px solid var(--border);
-          background: transparent;
+          background: var(--header-bg);
           opacity: 0.95;
           backdrop-filter: blur(10px);
           position: sticky;

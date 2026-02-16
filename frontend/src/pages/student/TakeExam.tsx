@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Clock,
   AlertTriangle,
@@ -9,6 +9,9 @@ import {
   ChevronRight,
   Sidebar as SidebarIcon
 } from 'lucide-react';
+import { io, Socket } from 'socket.io-client';
+import Peer from 'simple-peer';
+import * as faceapi from 'face-api.js';
 
 
 
@@ -23,9 +26,132 @@ const TakeExam = () => {
   const [warningCount, setWarningCount] = useState(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [isExamTerminated, setIsExamTerminated] = useState(false);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  // Face detection states
+  const [faceCount, setFaceCount] = useState(0);
+  const [multipleFaceWarnings, setMultipleFaceWarnings] = useState(0);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [lastViolationTime, setLastViolationTime] = useState(0);
+  const [detectionStabilized, setDetectionStabilized] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
+  const localStream = useRef<MediaStream | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const peersRef = useRef<{ [key: string]: Peer.Instance }>({});
   const hasStarted = useRef(false);
   const lastFullscreenState = useRef(false);
+  const detectionIntervalRef = useRef<number | null>(null);
+  const consecutiveMultipleFaces = useRef(0);
+
+  // Load face detection models
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        setModelsLoaded(true);
+        console.log('Face detection models loaded successfully');
+      } catch (err) {
+        console.error('Failed to load face detection models:', err);
+      }
+    };
+    loadModels();
+  }, []);
+
+  // Face detection loop
+  useEffect(() => {
+    if (!isFullscreen || !hasStarted.current || !modelsLoaded || !videoRef.current || isExamTerminated) {
+      return;
+    }
+
+    const detectFaces = async () => {
+      if (!videoRef.current || videoRef.current.readyState !== 4) return;
+
+      try {
+        const detections = await faceapi.detectAllFaces(
+          videoRef.current,
+          new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 })
+        );
+
+        const currentFaceCount = detections.length;
+        setFaceCount(currentFaceCount);
+
+        // Check for invalid face count (must be exactly 1)
+        if (currentFaceCount !== 1) {
+          consecutiveMultipleFaces.current += 1;
+
+          // Require 2 consecutive detections to avoid false positives
+          if (consecutiveMultipleFaces.current >= 2) {
+            const now = Date.now();
+            // Prevent duplicate warnings within 5 seconds
+            if (now - lastViolationTime > 5000) {
+              handleFaceViolation(currentFaceCount);
+              setLastViolationTime(now);
+            }
+          }
+        } else {
+          consecutiveMultipleFaces.current = 0;
+        }
+      } catch (err) {
+        console.error('Face detection error:', err);
+      }
+    };
+
+    // Run detection every 2 seconds
+    const interval = window.setInterval(detectFaces, 2000);
+    detectionIntervalRef.current = interval;
+
+    // Stabilize detection after 6 seconds (3 detection cycles)
+    const stabilizeTimeout = setTimeout(() => {
+      setDetectionStabilized(true);
+    }, 6000);
+
+    return () => {
+      if (detectionIntervalRef.current) {
+        clearInterval(detectionIntervalRef.current);
+      }
+      clearTimeout(stabilizeTimeout);
+    };
+  }, [isFullscreen, modelsLoaded, isExamTerminated]);
+
+  // Handle face violation
+  const handleFaceViolation = async (detectedFaces: number) => {
+    const newWarningCount = multipleFaceWarnings + 1;
+    setMultipleFaceWarnings(newWarningCount);
+
+    const violationType = detectedFaces === 0 ? 'No face detected' : `Multiple faces detected (${detectedFaces})`;
+    console.log(`Face violation: ${violationType}. Warning ${newWarningCount}/3`);
+
+    // Log to backend
+    if (sessionId) {
+      try {
+        await axios.post('/api/exams/session/warning', {
+          sessionId,
+          warningType: detectedFaces === 0 ? 'no-face' : 'multiple-faces',
+          message: `${violationType}. Warning ${newWarningCount}/3`
+        });
+
+        // Emit socket event for real-time teacher alert
+        if (socketRef.current) {
+          socketRef.current.emit('face-violation', {
+            sessionId,
+            faceCount: detectedFaces,
+            warningNumber: newWarningCount,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        console.error('Failed to log face violation:', err);
+      }
+    }
+
+    // Auto-terminate after 3 warnings
+    if (newWarningCount >= 3) {
+      terminateExam('Multiple face violations (3/3 warnings)');
+    }
+  };
 
   // Fullscreen enforcement and Warning Logic
   useEffect(() => {
@@ -66,11 +192,23 @@ const TakeExam = () => {
     }
   };
 
-  const terminateExam = () => {
+  const terminateExam = (reason: string = 'Rule violations') => {
     setIsExamTerminated(true);
+
+    // Stop face detection
+    if (detectionIntervalRef.current) {
+      clearInterval(detectionIntervalRef.current);
+    }
+
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => { });
     }
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(track => track.stop());
+    }
+
+    console.log(`Exam terminated: ${reason}`);
+
     // Finalize session in DB
     axios.post('/api/exams/submit', {
       examId: id,
@@ -79,23 +217,138 @@ const TakeExam = () => {
     }).catch(err => console.error("Auto-submit failed", err));
   };
 
-  const enterFullscreen = () => {
-    const element = document.documentElement;
-    if (element.requestFullscreen) {
-      element.requestFullscreen().then(async () => {
-        if (!hasStarted.current) {
-          hasStarted.current = true;
-          try {
-            const res = await axios.post('/api/exams/session/start', { examId: id });
-            setSessionId(res.data.sessionId);
-          } catch (err) {
-            console.error("Failed to start session", err);
-            // Fallback for demo if backend is not ready
-            setSessionId(Math.floor(Math.random() * 1000));
-          }
-        }
-      });
+  const handleSubmit = async () => {
+    setShowSubmitModal(true);
+  };
+
+  const confirmSubmit = async () => {
+    setShowSubmitModal(false);
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => { });
     }
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(track => track.stop());
+    }
+
+    try {
+      await axios.post('/api/exams/submit', {
+        examId: id,
+        answers: {},
+        completionTime: 3600 - timeLeft
+      });
+      navigate('/student/dashboard');
+    } catch (err) {
+      console.error("Submission failed", err);
+      navigate('/student/dashboard');
+    }
+  };
+
+  const enterFullscreen = async () => {
+    setPermissionError(null);
+    try {
+      // 1. Request Camera & Mic simultaneously
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStream.current = stream;
+
+      // 2. Enter Fullscreen
+      const element = document.documentElement;
+      if (element.requestFullscreen) {
+        await element.requestFullscreen();
+      }
+
+      // 3. Start Session & Sync Video
+      if (!hasStarted.current) {
+        hasStarted.current = true;
+        try {
+          const token = localStorage.getItem('token');
+          const res = await axios.post('/api/exams/session/start',
+            { examId: id },
+            {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            }
+          );
+          const newSessionId = res.data.sessionId;
+          setSessionId(newSessionId);
+
+          // Initialize Socket and Signaling
+          const socket = io();
+          socketRef.current = socket;
+          const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+          socket.emit('join-room', {
+            examId: Number(id),
+            userId: user.id || 0,
+            role: 'student',
+            name: user.name || 'Student',
+            sessionId: newSessionId
+          });
+
+          socket.on('teacher-online', (data: { teacherId: string }) => {
+            if (localStream.current) {
+              const peer = createPeer(data.teacherId, socket.id!, localStream.current);
+              peersRef.current[data.teacherId] = peer;
+            }
+          });
+
+          socket.on('signal', (data: { from: string, signal: any }) => {
+            const peer = peersRef.current[data.from];
+            if (peer) {
+              peer.signal(data.signal);
+            } else if (localStream.current) {
+              const peer = addPeer(data.signal, data.from, localStream.current);
+              peersRef.current[data.from] = peer;
+            }
+          });
+
+        } catch (err) {
+          console.error("Failed to start session", err);
+          setSessionId(Math.floor(Math.random() * 1000));
+        }
+      }
+
+      // Small delay to ensure Ref is attached when entering fullscreen
+      setTimeout(() => {
+        if (videoRef.current) videoRef.current.srcObject = localStream.current;
+      }, 500);
+
+    } catch (err: any) {
+      console.error("Permission denied:", err);
+      setPermissionError("Proctoring Error: Camera and Microphone access are mandatory to begin the examination. Please grant permissions in your browser bar and try again.");
+    }
+  };
+
+  const createPeer = (userToSignal: string, callerId: string, stream: MediaStream) => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream,
+    });
+
+    peer.on('signal', (signal) => {
+      socketRef.current?.emit('signal', { to: userToSignal, from: callerId, signal, userId: user.id });
+    });
+
+    return peer;
+  };
+
+  const addPeer = (incomingSignal: any, callerId: string, stream: MediaStream) => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const peer = new Peer({
+      initiator: false,
+      trickle: false,
+      stream,
+    });
+
+    peer.on('signal', (signal) => {
+      socketRef.current?.emit('signal', { to: callerId, from: socketRef.current.id, signal, userId: user.id });
+    });
+
+    peer.signal(incomingSignal);
+    return peer;
   };
 
   // Timer logic
@@ -107,15 +360,24 @@ const TakeExam = () => {
     return () => clearInterval(timer);
   }, [isFullscreen]);
 
-  // Camera initialization
+  // Sync video ref on mount or session start
   useEffect(() => {
-    if (isFullscreen && videoRef.current) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then(stream => {
-          if (videoRef.current) videoRef.current.srcObject = stream;
-        })
-        .catch(err => console.error("Camera access denied", err));
-    }
+    return () => {
+      if (localStream.current) {
+        localStream.current.getTracks().forEach(track => track.stop());
+      }
+      socketRef.current?.disconnect();
+      Object.values(peersRef.current).forEach(p => p.destroy());
+    };
+  }, []);
+
+  // Timer logic stays the same
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const timer = setInterval(() => {
+      setTimeLeft(prev => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
   }, [isFullscreen]);
 
   const formatTime = (seconds: number) => {
@@ -174,11 +436,150 @@ const TakeExam = () => {
               <p>This assessment requires an immersive environment. Please enable fullscreen to commence. Our AI proctoring system will monitor your session.</p>
             </>
           )}
-          <button onClick={enterFullscreen} className="neo-btn-primary">
+          <button
+            onClick={enterFullscreen}
+            className="neo-btn-primary"
+          >
             {warningCount > 0 ? "Resume Secure Session" : "Initialize Secure Mode"}
           </button>
         </motion.div>
+
+        <AnimatePresence>
+          {permissionError && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="permission-error-modal"
+            >
+              <div className="modal-content">
+                <AlertTriangle size={48} color="var(--error)" />
+                <h2>Access Required</h2>
+                <p>{permissionError}</p>
+                <div className="modal-actions">
+                  <button onClick={() => setPermissionError(null)} className="neo-btn-secondary">Dismiss</button>
+                  <button onClick={enterFullscreen} className="neo-btn-primary">Try Again</button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Submit Confirmation Modal */}
+        <AnimatePresence>
+          {showSubmitModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="submit-modal-overlay"
+              onClick={() => setShowSubmitModal(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="submit-modal-content"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="submit-modal-header">
+                  <div className="submit-icon-wrapper">
+                    <AlertTriangle size={32} />
+                  </div>
+                  <h2>Finalize Submission</h2>
+                </div>
+
+                <div className="submit-modal-body">
+                  <p className="submit-warning-text">
+                    Are you sure you want to submit your assessment?
+                  </p>
+                  <p className="submit-info-text">
+                    Once submitted, you will not be able to make any changes to your answers.
+                  </p>
+
+                  <div className="submit-stats">
+                    <div className="stat-item">
+                      <span className="stat-label">Time Remaining</span>
+                      <span className="stat-value">{formatTime(timeLeft)}</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-label">Questions Answered</span>
+                      <span className="stat-value">5/20</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="submit-modal-actions">
+                  <button
+                    onClick={() => setShowSubmitModal(false)}
+                    className="modal-btn modal-btn-cancel"
+                  >
+                    Continue Exam
+                  </button>
+                  <button
+                    onClick={confirmSubmit}
+                    className="modal-btn modal-btn-submit"
+                  >
+                    Submit Now
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <style>{`
+          .permission-error-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            padding: 2rem;
+          }
+
+          .modal-content {
+            background: var(--surface-low);
+            border: 1px solid var(--border);
+            padding: 3rem;
+            border-radius: var(--radius-md);
+            max-width: 500px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.4);
+          }
+
+          .modal-content h2 {
+            font-size: 2rem;
+            color: var(--text-primary);
+          }
+
+          .modal-content p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+          }
+
+          .modal-actions {
+            display: flex;
+            gap: 1rem;
+            width: 100%;
+            margin-top: 1rem;
+          }
+
+          .modal-actions button {
+            flex: 1;
+          }
+
           .fullscreen-guard {
             height: 100vh;
             display: flex;
@@ -249,6 +650,245 @@ const TakeExam = () => {
             color: var(--text-secondary);
             line-height: 1.6;
           }
+          
+          /* Submit Modal Styles */
+          .submit-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            padding: 2rem;
+          }
+
+          .submit-modal-content {
+            background: linear-gradient(135deg, rgba(28, 28, 31, 0.98) 0%, rgba(20, 20, 22, 0.98) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            max-width: 520px;
+            width: 100%;
+            overflow: hidden;
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+          }
+
+          .submit-modal-header {
+            padding: 2rem 2rem 1.5rem;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          }
+
+          .submit-icon-wrapper {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(234, 88, 12, 0.15) 100%);
+            border: 2px solid rgba(249, 115, 22, 0.3);
+            border-radius: 50%;
+            color: #f97316;
+            animation: pulse-icon 2s infinite;
+          }
+
+          @keyframes pulse-icon {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(249, 115, 22, 0); }
+          }
+
+          .submit-modal-header h2 {
+            font-family: var(--font-display);
+            font-size: 1.75rem;
+            color: var(--text-primary);
+            margin: 0;
+            font-weight: 700;
+          }
+
+          .submit-modal-body {
+            padding: 2rem;
+          }
+
+          .submit-warning-text {
+            font-size: 1.125rem;
+            color: var(--text-primary);
+            font-weight: 600;
+            margin: 0 0 0.75rem 0;
+            text-align: center;
+          }
+
+          .submit-info-text {
+            font-size: 0.9375rem;
+            color: var(--text-secondary);
+            margin: 0 0 2rem 0;
+            text-align: center;
+            line-height: 1.6;
+          }
+
+          .submit-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+          }
+
+          .stat-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+          }
+
+          .stat-label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+          }
+
+          .stat-value {
+            display: block;
+            font-size: 1.5rem;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-family: monospace;
+          }
+
+          .submit-modal-actions {
+            padding: 1.5rem 2rem 2rem;
+            display: flex;
+            gap: 1rem;
+          }
+
+          .modal-btn {
+            flex: 1;
+            padding: 0.875rem 1.5rem;
+            border-radius: 8px;
+            font-size: 0.9375rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            font-family: inherit;
+          }
+
+          .modal-btn-cancel {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+          }
+
+          .modal-btn-cancel:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+          }
+
+          .modal-btn-submit {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            color: white;
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+          }
+
+          .modal-btn-submit:hover {
+            background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+            box-shadow: 0 6px 16px rgba(249, 115, 22, 0.4);
+            transform: translateY(-1px);
+          }
+
+          .modal-btn:active {
+            transform: translateY(0);
+          }
+          
+          /* Face Detection Lock Overlay */
+          .face-lock-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.92);
+            backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 2rem;
+          }
+
+          .face-lock-message {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.1) 100%);
+            border: 2px solid rgba(239, 68, 68, 0.3);
+            border-radius: 16px;
+            padding: 3rem;
+            max-width: 500px;
+            text-align: center;
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+          }
+
+          .face-lock-message svg {
+            color: #ef4444;
+            margin-bottom: 1.5rem;
+            filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.4));
+          }
+
+          .face-lock-message h3 {
+            font-family: var(--font-display);
+            font-size: 1.75rem;
+            color: var(--text-primary);
+            margin: 0 0 1rem 0;
+            font-weight: 700;
+          }
+
+          .face-lock-message p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            line-height: 1.6;
+            margin: 0 0 2rem 0;
+          }
+
+          .face-lock-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+          }
+
+          .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+          }
+
+          .status-indicator.pulsing {
+            animation: status-pulse 1.5s infinite;
+          }
+
+          @keyframes status-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+          }
+
+          button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed !important;
+          }
         `}</style>
       </div>
     );
@@ -268,12 +908,42 @@ const TakeExam = () => {
           <span>{formatTime(timeLeft)}</span>
         </div>
 
-        <button className="neo-btn-primary finish-btn" onClick={() => navigate('/student/dashboard')}>
+        <button className="neo-btn-primary finish-btn" onClick={handleSubmit}>
           Finalize Submission
         </button>
       </header>
 
       <div className="exam-workspace">
+        {/* Face Detection Lock Overlay */}
+        <AnimatePresence>
+          {faceCount !== 1 && detectionStabilized && isFullscreen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="face-lock-overlay"
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                className="face-lock-message"
+              >
+                <AlertTriangle size={48} />
+                <h3>{faceCount === 0 ? 'Face Not Detected' : 'Multiple Faces Detected'}</h3>
+                <p>
+                  {faceCount === 0
+                    ? 'Please position yourself in front of the camera to continue the exam.'
+                    : 'Only one person is allowed. Please ensure you are alone to continue.'}
+                </p>
+                <div className="face-lock-status">
+                  <div className="status-indicator pulsing"></div>
+                  <span>Exam paused - Waiting for valid face detection</span>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <main className="question-area">
           <div className="question-card neo-card">
             <header className="q-header">
@@ -286,7 +956,12 @@ const TakeExam = () => {
 
               <div className="options-grid">
                 {['0.25', '0.50', '0.75', '1.00'].map((opt, i) => (
-                  <button key={i} className="option-btn">
+                  <button
+                    key={i}
+                    className="option-btn"
+                    disabled={faceCount !== 1 && detectionStabilized}
+                    style={{ opacity: faceCount !== 1 && detectionStabilized ? 0.5 : 1, cursor: faceCount !== 1 && detectionStabilized ? 'not-allowed' : 'pointer' }}
+                  >
                     <span className="opt-idx">{String.fromCharCode(65 + i)}</span>
                     <span className="opt-text">{opt}</span>
                   </button>
@@ -298,12 +973,14 @@ const TakeExam = () => {
               <button
                 className="text-btn"
                 onClick={() => setCurrentQuestion(q => Math.max(0, q - 1))}
+                disabled={faceCount !== 1 && detectionStabilized}
               >
                 <ChevronLeft /> Previous
               </button>
               <button
                 className="text-btn"
                 onClick={() => setCurrentQuestion(q => Math.min(19, q + 1))}
+                disabled={faceCount !== 1 && detectionStabilized}
               >
                 Next <ChevronRight />
               </button>
@@ -321,9 +998,25 @@ const TakeExam = () => {
               </div>
             </div>
             <div className="proctor-metrics">
-              <div className="metric"><span>Faces Detected</span> <strong>1</strong></div>
-              <div className="metric"><span>Focus Score</span> <strong>98%</strong></div>
+              <div className="metric">
+                <span>Faces Detected</span>
+                <strong className={faceCount !== 1 ? 'text-error' : 'text-success'}>
+                  {modelsLoaded ? faceCount : '...'}
+                </strong>
+              </div>
+              <div className="metric">
+                <span>Face Warnings</span>
+                <strong className={multipleFaceWarnings > 0 ? 'text-warning' : ''}>
+                  {multipleFaceWarnings}/3
+                </strong>
+              </div>
             </div>
+            {faceCount !== 1 && modelsLoaded && (
+              <div className="face-warning-alert">
+                <AlertTriangle size={16} />
+                <span>{faceCount === 0 ? 'No face detected!' : 'Multiple faces detected!'}</span>
+              </div>
+            )}
           </div>
 
           <div className="question-palette neo-card">
@@ -334,6 +1027,7 @@ const TakeExam = () => {
                   key={i}
                   className={`palette-idx ${i === currentQuestion ? 'active' : ''} ${i < 5 ? 'answered' : ''}`}
                   onClick={() => setCurrentQuestion(i)}
+                  disabled={faceCount !== 1 && detectionStabilized}
                 >
                   {i + 1}
                 </button>
@@ -586,6 +1280,102 @@ const TakeExam = () => {
           0% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.2); opacity: 0.7; }
           100% { transform: scale(1); opacity: 1; }
+        }
+        .text-success { color: var(--success); }
+        .text-error { color: var(--error); }
+        .text-warning { color: #f97316; }
+        .face-warning-alert {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.5rem;
+          background: rgba(249, 115, 22, 0.1);
+          border: 1px solid rgba(249, 115, 22, 0.3);
+          border-radius: var(--radius-sm);
+          color: #f97316;
+          font-size: 0.75rem;
+          margin-top: 0.5rem;
+          animation: warning-pulse 1.5s infinite;
+        }
+        @keyframes warning-pulse {
+          0% { background: rgba(249, 115, 22, 0.1); border-color: rgba(249, 115, 22, 0.3); }
+          50% { background: rgba(249, 115, 22, 0.2); border-color: rgba(249, 115, 22, 0.6); }
+          100% { background: rgba(249, 115, 22, 0.1); border-color: rgba(249, 115, 22, 0.3); }
+        }
+        
+        /* Enhanced Navigation Buttons */
+        .text-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.75rem 1.5rem;
+          background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+          border: 1px solid rgba(99, 102, 241, 0.3);
+          border-radius: 8px;
+          color: var(--text-primary);
+          font-size: 0.9375rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .text-btn::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+        
+        .text-btn:hover:not(:disabled)::before {
+          opacity: 1;
+        }
+        
+        .text-btn:hover:not(:disabled) {
+          border-color: rgba(99, 102, 241, 0.6);
+          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2), 0 0 0 1px rgba(99, 102, 241, 0.1);
+          transform: translateY(-2px);
+        }
+        
+        .text-btn:active:not(:disabled) {
+          transform: translateY(0);
+          box-shadow: 0 2px 6px rgba(99, 102, 241, 0.15);
+        }
+        
+        .text-btn svg {
+          position: relative;
+          z-index: 1;
+          transition: transform 0.3s ease;
+        }
+        
+        .text-btn:hover:not(:disabled) svg {
+          transform: translateX(0);
+        }
+        
+        .text-btn:hover:not(:disabled) svg:first-child {
+          transform: translateX(-3px);
+        }
+        
+        .text-btn:hover:not(:disabled) svg:last-child {
+          transform: translateX(3px);
+        }
+        
+        .text-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+          background: rgba(255, 255, 255, 0.03);
+          border-color: rgba(255, 255, 255, 0.05);
+        }
+        
+        .text-btn span {
+          position: relative;
+          z-index: 1;
         }
       `}</style>
     </div>

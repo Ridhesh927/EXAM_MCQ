@@ -8,12 +8,20 @@ import {
     Trash2,
     Upload,
     ChevronRight,
-    ChevronLeft
+    ChevronLeft,
+    Download,
+    Rocket
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
 const CreateExam = () => {
+    const navigate = useNavigate();
     const [step, setStep] = useState(1);
+    const [isPublishing, setIsPublishing] = useState(false);
+    const [publishSuccess, setPublishSuccess] = useState(false);
     const [examData, setExamData] = useState({
         title: '',
         subject: '',
@@ -51,6 +59,70 @@ const CreateExam = () => {
             ...examData,
             questions: examData.questions.filter((_, i) => i !== index)
         });
+    };
+
+    const handlePublish = async () => {
+        setIsPublishing(true);
+        try {
+            const token = localStorage.getItem('token');
+
+            // Map frontend data to backend format
+            const backendData = {
+                title: examData.title,
+                subject: examData.subject,
+                duration: examData.duration,
+                total_marks: examData.questions.length * 5, // Assuming 5 marks per question
+                passing_marks: examData.passingMarks,
+                instructions: 'Please read all questions carefully before answering.',
+                questions: examData.questions.map(q => ({
+                    question: q.text,
+                    options: q.options,
+                    correct_answer: q.correct,
+                    marks: 5,
+                    difficulty: 'medium'
+                }))
+            };
+
+            await axios.post('/api/exams/create', backendData, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            setPublishSuccess(true);
+            setTimeout(() => {
+                navigate('/teacher/exams');
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to publish exam:', err);
+            alert('Failed to publish exam. Please try again.');
+        } finally {
+            setIsPublishing(false);
+        }
+    };
+
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const bstr = evt.target?.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+            const importedQuestions = data.map((row: any) => ({
+                text: row.question || '',
+                type: 'MCQ',
+                options: [row.option1 || '', row.option2 || '', row.option3 || '', row.option4 || ''],
+                correct: (parseInt(row.correct_answer) - 1) || 0
+            }));
+
+            setExamData({
+                ...examData,
+                questions: [...examData.questions, ...importedQuestions]
+            });
+        };
+        reader.readAsBinaryString(file);
     };
 
     return (
@@ -176,9 +248,24 @@ const CreateExam = () => {
                                         <Plus size={20} /> Add New Inquiry
                                     </button>
 
-                                    <div className="bulk-import-lite">
-                                        <Upload size={18} />
-                                        <span>Or import questions from CSV/Excel template</span>
+                                    <div className="bulk-import-container">
+                                        <div className="bulk-import-lite">
+                                            <Upload size={18} />
+                                            <span>Import questions from CSV/Excel</span>
+                                            <input
+                                                type="file"
+                                                accept=".csv, .xlsx, .xls"
+                                                onChange={handleFileUpload}
+                                                style={{ opacity: 0, position: 'absolute', width: '100%', cursor: 'pointer' }}
+                                            />
+                                        </div>
+                                        <a
+                                            href="/question_template.csv"
+                                            download
+                                            className="template-link"
+                                        >
+                                            <Download size={14} /> Download Template
+                                        </a>
                                     </div>
                                 </div>
                             </motion.div>
@@ -210,15 +297,22 @@ const CreateExam = () => {
                         <button
                             disabled={step === 1}
                             onClick={prevStep}
-                            className="text-btn"
+                            className="nav-btn nav-btn-back"
                         >
                             <ChevronLeft size={18} /> Back
                         </button>
                         <button
-                            onClick={step === 3 ? () => { } : nextStep}
-                            className="neo-btn-primary"
+                            onClick={step === 3 ? handlePublish : nextStep}
+                            disabled={isPublishing || publishSuccess}
+                            className={step === 3 ? 'nav-btn nav-btn-publish' : 'nav-btn nav-btn-continue'}
                         >
-                            {step === 3 ? 'Publish Assessment' : 'Continue'} <ChevronRight size={18} />
+                            {publishSuccess ? (
+                                <><CheckCircle size={18} /> Published!</>
+                            ) : isPublishing ? (
+                                <><Rocket size={18} className="publishing-icon" /> Publishing...</>
+                            ) : (
+                                <>{step === 3 ? <><Rocket size={18} /> Publish Assessment</> : <>Continue <ChevronRight size={18} /></>}</>
+                            )}
                         </button>
                     </footer>
                 </main>
@@ -256,7 +350,11 @@ const CreateExam = () => {
           .add-q-btn { width: 100%; padding: 1.25rem; border: 1px dashed var(--border); background: var(--surface-low); color: var(--text-secondary); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; gap: 1rem; font-weight: 700; font-size: 0.875rem; transition: var(--transition-fast); }
           .add-q-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--surface); }
           
-          .bulk-import-lite { display: flex; align-items: center; justify-content: center; gap: 0.75rem; color: var(--text-muted); font-size: 0.8125rem; }
+          .bulk-import-container { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-top: 1rem; }
+          .bulk-import-lite { position: relative; display: flex; align-items: center; justify-content: center; gap: 0.75rem; color: var(--text-muted); font-size: 0.8125rem; padding: 0.75rem 1.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); transition: var(--transition-fast); width: 100%; }
+          .bulk-import-lite:hover { background: var(--surface-low); color: var(--text-primary); }
+          .template-link { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--accent); font-weight: 600; text-decoration: underline; }
+          .template-link:hover { opacity: 0.8; }
           
           .finalize-step { display: flex; flex-direction: column; align-items: center; gap: 2rem; text-align: center; }
           .review-summary { width: 100%; max-width: 450px; padding: 2rem; display: flex; flex-direction: column; gap: 1.25rem; background: var(--surface); }
@@ -266,6 +364,132 @@ const CreateExam = () => {
           .wizard-footer { margin-top: auto; padding-top: 2rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; }
           .danger { color: var(--error); }
           .text-center { text-align: center; }
+          
+          /* Enhanced Navigation Buttons */
+          .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.875rem 1.75rem;
+            border-radius: 8px;
+            font-size: 0.9375rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            border: none;
+          }
+          
+          .nav-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+          }
+          
+          .nav-btn:hover:not(:disabled)::before {
+            opacity: 1;
+          }
+          
+          .nav-btn svg {
+            position: relative;
+            z-index: 1;
+            transition: transform 0.3s ease;
+          }
+          
+          .nav-btn span {
+            position: relative;
+            z-index: 1;
+          }
+          
+          /* Back Button */
+          .nav-btn-back {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: var(--text-primary);
+          }
+          
+          .nav-btn-back::before {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
+          }
+          
+          .nav-btn-back:hover:not(:disabled) {
+            border-color: rgba(99, 102, 241, 0.6);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+            transform: translateY(-2px);
+          }
+          
+          .nav-btn-back:hover:not(:disabled) svg {
+            transform: translateX(-3px);
+          }
+          
+          .nav-btn-back:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.05);
+          }
+          
+          /* Continue Button */
+          .nav-btn-continue {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: white;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+          }
+          
+          .nav-btn-continue::before {
+            background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+          }
+          
+          .nav-btn-continue:hover:not(:disabled) {
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+            transform: translateY(-2px);
+          }
+          
+          .nav-btn-continue:hover:not(:disabled) svg:last-child {
+            transform: translateX(3px);
+          }
+          
+          /* Publish Button */
+          .nav-btn-publish {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            color: white;
+            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+          }
+          
+          .nav-btn-publish::before {
+            background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+          }
+          
+          .nav-btn-publish:hover:not(:disabled) {
+            box-shadow: 0 6px 20px rgba(249, 115, 22, 0.5);
+            transform: translateY(-2px);
+          }
+          
+          .nav-btn-publish:hover:not(:disabled) svg {
+            transform: translateY(-2px) rotate(-5deg);
+          }
+          
+          .nav-btn-publish:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+          }
+          
+          .publishing-icon {
+            animation: rocket-launch 1s infinite;
+          }
+          
+          @keyframes rocket-launch {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+          }
         `}</style>
             </div>
         </DashboardLayout>

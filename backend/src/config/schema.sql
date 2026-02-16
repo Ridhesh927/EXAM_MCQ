@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
 CREATE TABLE IF NOT EXISTS exam_warnings (
     id INT AUTO_INCREMENT PRIMARY KEY,
     session_id INT,
-    warning_type VARCHAR(100), -- 'tab-switch', 'multiple-faces', 'no-face', 'talking'
+    warning_type VARCHAR(100), -- 'tab-switch', 'multiple-faces', 'no-face', 'fullscreen-exit', 'talking'
     message TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE

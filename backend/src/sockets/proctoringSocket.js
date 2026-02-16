@@ -61,6 +61,30 @@ module.exports = (io) => {
             socket.to(`exam-${examId}`).emit('student-warning-alert', { userId, warningType });
         });
 
+        // Face violation handler
+        socket.on('face-violation', async ({ sessionId, faceCount, warningNumber, timestamp }) => {
+            console.log(`Face violation: Session ${sessionId}, ${faceCount} faces detected, Warning ${warningNumber}/3`);
+
+            // Broadcast to teachers in the exam room
+            try {
+                const [session] = await pool.query('SELECT exam_id, student_id FROM exam_sessions WHERE id = ?', [sessionId]);
+                if (session.length > 0) {
+                    const examId = session[0].exam_id;
+                    const studentId = session[0].student_id;
+
+                    socket.to(`exam-${examId}`).emit('student-face-violation', {
+                        sessionId,
+                        studentId,
+                        faceCount,
+                        warningNumber,
+                        timestamp
+                    });
+                }
+            } catch (err) {
+                console.error('Error broadcasting face violation:', err);
+            }
+        });
+
         socket.on('disconnect', async () => {
             if (socket.role === 'student' && socket.sessionId) {
                 console.log(`Student ${socket.userId} disconnected from session ${socket.sessionId}`);
