@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/simple-peer": "^9.11.9",
     "@types/three": "^0.182.0",
     "axios": "^1.13.2",
     "face-api.js": "^0.22.2",
@@ -19,8 +20,10 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.11.0",
+    "simple-peer": "^9.11.1",
     "socket.io-client": "^4.8.3",
-    "three": "^0.182.0"
+    "three": "^0.182.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

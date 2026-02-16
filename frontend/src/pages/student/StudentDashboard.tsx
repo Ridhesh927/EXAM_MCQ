@@ -2,8 +2,10 @@ import { motion } from 'framer-motion';
 import { Clock, BookCheck, ArrowRight } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { MOCK_STATS, MOCK_EXAMS } from '../../utils/mockData';
+import { useNavigate } from 'react-router-dom';
 
 const StudentDashboard = () => {
+  const navigate = useNavigate();
   return (
     <DashboardLayout userType="student">
       <div className="dashboard-page">
@@ -63,7 +65,12 @@ const StudentDashboard = () => {
                     <Clock size={16} />
                     <span>{exam.duration} Minutes</span>
                   </div>
-                  <button className="neo-btn-primary">Initiate</button>
+                  <button
+                    className="neo-btn-primary"
+                    onClick={() => navigate(`/student/exam/${exam.id}`)}
+                  >
+                    Initiate
+                  </button>
                 </div>
               </motion.div>
             ))}

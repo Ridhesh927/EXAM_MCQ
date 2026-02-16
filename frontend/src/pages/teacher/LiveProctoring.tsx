@@ -6,12 +6,11 @@ import {
     Users,
     ShieldAlert,
     Search,
-    Filter,
     Monitor,
     Video,
-    VideoOff,
-    ExternalLink
+    VideoOff
 } from 'lucide-react';
+import Peer from 'simple-peer';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
 interface StudentSession {
@@ -30,6 +29,8 @@ const LiveProctoring = () => {
     const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
     const [sessions, setSessions] = useState<StudentSession[]>([]);
     const [loading, setLoading] = useState(true);
+    const [peers, setPeers] = useState<{ [key: string]: Peer.Instance }>({});
+    const [streams, setStreams] = useState<{ [key: string]: MediaStream }>({});
 
     useEffect(() => {
         const fetchExams = async () => {
@@ -70,20 +71,62 @@ const LiveProctoring = () => {
             name: user.name || 'Teacher'
         });
 
-        socket.on('student-connected', (data) => {
+        socket.on('student-connected', (data: { socketId: string, userId: number }) => {
             console.log("Student joined:", data);
-            fetchSessions(); // Refresh list
+            fetchSessions();
+
+            // Initiate WebRTC
+            const peer = new Peer({
+                initiator: true,
+                trickle: false,
+            });
+
+            peer.on('signal', (signal) => {
+                socket.emit('signal', { to: data.socketId, from: socket.id, signal });
+            });
+
+            peer.on('stream', (stream: MediaStream) => {
+                setStreams(prev => ({ ...prev, [data.userId]: stream }));
+            });
+
+            setPeers(prev => ({ ...prev, [data.socketId]: peer }));
         });
 
-        socket.on('student-warning-alert', (data) => {
+        socket.on('signal', (data: { from: string, signal: any, userId?: number }) => {
+            const peer = peers[data.from];
+            if (peer) {
+                peer.signal(data.signal);
+            } else {
+                // If student initiates
+                const peer = new Peer({
+                    initiator: false,
+                    trickle: false,
+                });
+
+                peer.on('signal', (signal) => {
+                    socket.emit('signal', { to: data.from, from: socket.id, signal });
+                });
+
+                peer.on('stream', (stream: MediaStream) => {
+                    if (data.userId) {
+                        setStreams(prev => ({ ...prev, [data.userId!]: stream }));
+                    }
+                });
+
+                peer.signal(data.signal);
+                setPeers(prev => ({ ...prev, [data.from]: peer }));
+            }
+        });
+
+        socket.on('student-warning-alert', (data: { sessionId: number, warningType: string }) => {
             console.log("Warning received:", data);
-            setSessions(prev => prev.map(s =>
+            setSessions(prev => prev.map((s: StudentSession) =>
                 s.id === data.sessionId ? { ...s, warnings_count: s.warnings_count + 1, last_action: data.warningType } : s
             ));
         });
 
-        socket.on('student-progress-update', (data) => {
-            setSessions(prev => prev.map(s =>
+        socket.on('student-progress-update', (data: { sessionId: number, questionId: number }) => {
+            setSessions(prev => prev.map((s: StudentSession) =>
                 s.id === data.sessionId ? { ...s, last_action: `Answered Q${data.questionId}`, last_update: new Date().toLocaleTimeString() } : s
             ));
         });
@@ -151,9 +194,17 @@ const LiveProctoring = () => {
                             className={`proctor-feed neo-card ${getStatusType(session.warnings_count)}`}
                         >
                             <div className="feed-video">
-                                <div className="video-placeholder">
-                                    {session.warnings_count >= 3 ? <VideoOff size={48} /> : <Video size={48} />}
-                                </div>
+                                {streams[session.student_id] ? (
+                                    <video
+                                        autoPlay
+                                        playsInline
+                                        ref={(video) => { if (video) video.srcObject = streams[session.student_id]; }}
+                                    />
+                                ) : (
+                                    <div className="video-placeholder">
+                                        {session.warnings_count >= 3 ? <VideoOff size={48} /> : <Video size={48} />}
+                                    </div>
+                                )}
                                 <div className="feed-overlay">
                                     <span className="device-tag"><Monitor size={12} /> Live</span>
                                     <span className="focus-tag">Warnings: {session.warnings_count}/3</span>

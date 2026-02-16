@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;700&family=Public+Sans:wght@300;400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
   /* Neo-Academic Noir Palette */
@@ -6,6 +6,9 @@
   --surface-low: #141416;
   --surface: #1c1c1f;
   --surface-high: #27272a;
+
+  --sidebar-bg: rgba(18, 18, 18, 0.4);
+  --header-bg: rgba(12, 12, 13, 0.4);
 
   --text-primary: #f4f4f5;
   --text-secondary: #a1a1aa;
@@ -23,8 +26,8 @@
   --success: #22c55e;
 
   /* Typography */
-  --font-display: 'Fraunces', serif;
-  --font-body: 'Public Sans', sans-serif;
+  --font-display: 'Outfit', sans-serif;
+  --font-body: 'Inter', sans-serif;
 
   /* Spacing & Radii */
   --radius-sm: 4px;
@@ -41,16 +44,19 @@
   --surface: #ffffff;
   --surface-high: #e2e8f0;
 
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
+  --sidebar-bg: rgba(255, 255, 255, 0.8);
+  --header-bg: rgba(248, 250, 252, 0.8);
+
+  --text-primary: #1e293b;
+  --text-secondary: #334155;
   --text-muted: #64748b;
 
-  --accent: #d97706;
+  --accent: #b45309;
   --accent-soft: #ffedd5;
-  --accent-text: #9a3412;
+  --accent-text: #7c2d12;
 
-  --border: #e2e8f0;
-  --border-focus: #cbd5e1;
+  --border: #cbd5e1;
+  --border-focus: #94a3b8;
 }
 
 * {
@@ -131,16 +137,78 @@ button {
 .neo-btn-primary {
   padding: 0.75rem 1.5rem;
   background: var(--accent);
-  color: var(--bg);
-  font-weight: 600;
+  color: #000;
+  font-weight: 700;
   border-radius: var(--radius-sm);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: 0 4px 15px rgba(217, 119, 6, 0.2);
 }
 
-.neo-btn-primary:hover {
+.neo-btn-primary:hover:not(.disabled) {
   background: var(--text-primary);
+  color: var(--bg);
   transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.1);
+}
+
+.neo-btn-secondary {
+  padding: 0.75rem 1.5rem;
+  background: var(--surface-low);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.neo-btn-secondary:hover {
+  background: var(--surface-high);
+  border-color: var(--border-focus);
+  transform: translateY(-1px);
+}
+
+.filter-group {
+  display: flex;
+  background: var(--surface-low);
+  padding: 0.35rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  gap: 0.25rem;
+}
+
+.filter-tab {
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: var(--transition-fast);
+}
+
+.filter-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.filter-tab.active {
+  background: var(--surface-high);
+  color: var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.neo-btn-primary.disabled {
+  background: var(--surface-high);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  transform: none;
 }
 
 .text-secondary {

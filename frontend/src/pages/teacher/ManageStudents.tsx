@@ -43,9 +43,9 @@ const ManageStudents = () => {
                         <input type="text" placeholder="Search by name, email or ID..." />
                     </div>
                     <div className="filter-group">
-                        <button className="text-btn active">All Students</button>
-                        <button className="text-btn">Active</button>
-                        <button className="text-btn">Flagged</button>
+                        <button className="filter-tab active">All Students</button>
+                        <button className="filter-tab">Active</button>
+                        <button className="filter-tab">Flagged</button>
                     </div>
                 </div>
 
@@ -117,9 +117,6 @@ const ManageStudents = () => {
           .table-actions { padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; background: var(--surface-low); }
           .search-bar { display: flex; align-items: center; gap: 1rem; color: var(--text-muted); flex: 1; max-width: 400px; }
           .search-bar input { background: none; color: var(--text-primary); border: none; outline: none; width: 100%; font-size: 0.875rem; }
-          .filter-group { display: flex; gap: 1.5rem; }
-          .filter-group .text-btn { font-size: 0.875rem; color: var(--text-muted); }
-          .filter-group .active { color: var(--accent); font-weight: 700; }
           
           .students-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; padding-bottom: 2rem; }
           .student-card { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; background: var(--surface-low); }
