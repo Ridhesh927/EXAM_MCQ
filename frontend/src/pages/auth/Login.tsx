@@ -16,42 +16,63 @@ const Login = () => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const isStudent = role === 'student';
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    // Demo Credentials Logic
-    const demoTeacher = { email: 'teacher@demo.com', pass: 'Teacher@123' };
-    const demoStudent = { ids: ['STU001', 'student@demo.com'], pass: 'Student@123' };
+    try {
+      const trimmedIdentifier = identifier.trim();
+      const trimmedPassword = password.trim();
 
-    const trimmedIdentifier = identifier.trim();
-    const trimmedPassword = password.trim();
-
-    if (!isStudent) {
-      if (trimmedIdentifier === demoTeacher.email && trimmedPassword === demoTeacher.pass) {
-        localStorage.setItem('user', JSON.stringify({
-          name: 'Demo Teacher',
-          role: 'teacher',
-          email: demoTeacher.email
-        }));
-        navigate('/teacher/dashboard');
-      } else {
-        setError('Invalid teacher credentials. Use teacher@demo.com / Teacher@123');
+      if (!trimmedIdentifier || !trimmedPassword) {
+        setError('Please fill in all fields');
+        setLoading(false);
+        return;
       }
-    } else {
-      if (demoStudent.ids.includes(trimmedIdentifier) && trimmedPassword === demoStudent.pass) {
-        localStorage.setItem('user', JSON.stringify({
-          name: 'Demo Student',
-          role: 'student',
-          identifier: trimmedIdentifier
-        }));
+
+      const endpoint = isStudent
+        ? 'http://localhost:5000/api/auth/student/login'
+        : 'http://localhost:5000/api/auth/teacher/login';
+
+      const body = isStudent
+        ? { prn_number: trimmedIdentifier, password: trimmedPassword }
+        : { email: trimmedIdentifier, password: trimmedPassword };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.message || 'Invalid credentials');
+        setLoading(false);
+        return;
+      }
+
+      // Store token and user data
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+
+      // Navigate to appropriate dashboard
+      if (isStudent) {
         navigate('/student/dashboard');
       } else {
-        setError('Invalid student credentials. Use STU001 or student@demo.com / Student@123');
+        navigate('/teacher/dashboard');
       }
+    } catch (error) {
+      console.error('Login error:', error);
+      setError('Failed to connect to server. Please try again.');
+      setLoading(false);
     }
   };
 
@@ -134,8 +155,8 @@ const Login = () => {
                 </div>
               </div>
 
-              <button type="submit" className="neo-btn-primary auth-submit">
-                Access Dashboard <LogIn size={18} />
+              <button type="submit" className="neo-btn-primary auth-submit" disabled={loading}>
+                {loading ? 'Logging in...' : 'Access Dashboard'} <LogIn size={18} />
               </button>
             </form>
 

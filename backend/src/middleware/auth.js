@@ -12,14 +12,11 @@ const authMiddleware = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here');
         req.user = decoded;
 
-        // Skip check for demo user (id: 0)
-        if (decoded.id !== 0) {
-            const table = decoded.role === 'teacher' ? 'teachers' : 'students';
-            const [rows] = await pool.query(`SELECT last_token FROM ${table} WHERE id = ?`, [decoded.id]);
+        const table = decoded.role === 'teacher' ? 'teachers' : 'students';
+        const [rows] = await pool.query(`SELECT last_token FROM ${table} WHERE id = ?`, [decoded.id]);
 
-            if (rows.length === 0 || rows[0].last_token !== token) {
-                return res.status(401).json({ message: 'Session expired or logged in on another device' });
-            }
+        if (rows.length === 0 || rows[0].last_token !== token) {
+            return res.status(401).json({ message: 'Session expired or logged in on another device' });
         }
 
         next();

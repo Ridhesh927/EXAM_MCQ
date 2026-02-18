@@ -107,30 +107,3 @@ CREATE TABLE IF NOT EXISTS student_responses (
     FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES exam_questions (id) ON DELETE CASCADE
 );
-
--- Demo Credentials
--- Teacher: teacher@demo.com / Teacher@123 (Password hashed: $2a$10$7R.sHwA.J4X5B7x9X.K1ZeE/X6A8x6wA.J4X5B7x9X.K1ZeE/)
--- NOTE: In local testing, you might need to use simple bcrypt hashes or let the controller handle it.
--- For convenience, I'll add logic to the initDB or just provide clean data.
-
-INSERT IGNORE INTO
-    teachers (username, email, password)
-VALUES (
-        'demo_teacher',
-        'teacher@demo.com',
-        '$2y$10$STU001PASSWORDHASHEDHERE_USE_DEMO'
-    );
-
-INSERT IGNORE INTO
-    students (
-        username,
-        email,
-        password,
-        prn_number
-    )
-VALUES (
-        'demo_student',
-        'student@demo.com',
-        '$2y$10$STU001PASSWORDHASHEDHERE_USE_DEMO',
-        'STU001'
-    );

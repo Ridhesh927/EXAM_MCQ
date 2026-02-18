@@ -1,32 +1,9 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { UserPlus, Eye, EyeOff } from 'lucide-react';
 import Galaxy from '../../components/Galaxy/Galaxy';
 
 
 const Register = () => {
-  const navigate = useNavigate();
-  const [showPassword, setShowPassword] = useState(false);
-  const [fullName, setFullName] = useState('');
-  const [prn, setPrn] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-
-  const handleRegister = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Save to localStorage
-    localStorage.setItem('user', JSON.stringify({
-      name: fullName,
-      role: 'student', // Defaulting to student for this demo registration
-      email: email,
-      prn: prn
-    }));
-
-    navigate('/student/dashboard');
-  };
-
   return (
     <div className="auth-page">
       <Galaxy
@@ -56,73 +33,27 @@ const Register = () => {
             className="neo-card auth-card"
           >
             <div className="auth-header">
-              <h2>Enrollment</h2>
-              <p className="text-secondary">Register your academic profile.</p>
+              <h2>Registration Disabled</h2>
+              <p className="text-secondary">Contact your administrator for account creation.</p>
             </div>
 
-            <form className="auth-form" onSubmit={handleRegister}>
-              <div className="form-row">
-                <div className="form-group flex-1">
-                  <label>Full Name</label>
-                  <input
-                    type="text"
-                    className="neo-input"
-                    placeholder="e.g. John Doe"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="form-group flex-1">
-                  <label>PRN Number</label>
-                  <input
-                    type="text"
-                    className="neo-input"
-                    placeholder="ID Number"
-                    value={prn}
-                    onChange={(e) => setPrn(e.target.value)}
-                    required
-                  />
-                </div>
+            <div className="registration-notice">
+              <div className="notice-icon">🔒</div>
+              <h3>Public Registration Not Available</h3>
+              <p>
+                For security reasons, public registration has been disabled.
+                Only authorized administrators can create new accounts.
+              </p>
+              <div className="notice-info">
+                <h4>To get an account:</h4>
+                <ul>
+                  <li>Contact your teacher or system administrator</li>
+                  <li>Provide your full name, email, and PRN number (for students)</li>
+                  <li>Wait for your account to be created</li>
+                  <li>You will receive your login credentials</li>
+                </ul>
               </div>
-
-              <div className="form-group">
-                <label>Institutional Email</label>
-                <input
-                  type="email"
-                  className="neo-input"
-                  placeholder="scholar@academy.edu"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Password</label>
-                <div className="password-input-wrapper">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    className="neo-input"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <button type="submit" className="neo-btn-primary auth-submit">
-                Initialize Profile <UserPlus size={18} />
-              </button>
-            </form>
+            </div>
 
             <div className="auth-footer">
               <p>Already have credentials? <Link to="/login">Sign In</Link></p>
@@ -333,6 +264,62 @@ const Register = () => {
           text-align: center;
           font-size: 0.875rem;
           color: var(--text-muted);
+        }
+
+        .registration-notice {
+          text-align: center;
+          padding: 2rem;
+        }
+
+        .notice-icon {
+          font-size: 4rem;
+          margin-bottom: 1rem;
+        }
+
+        .registration-notice h3 {
+          font-size: 1.5rem;
+          color: var(--text-primary);
+          margin-bottom: 1rem;
+        }
+
+        .registration-notice p {
+          color: var(--text-muted);
+          line-height: 1.6;
+          margin-bottom: 1.5rem;
+        }
+
+        .notice-info {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: var(--radius-sm);
+          padding: 1.5rem;
+          text-align: left;
+          margin-top: 1.5rem;
+        }
+
+        .notice-info h4 {
+          color: var(--accent);
+          font-size: 1rem;
+          margin-bottom: 1rem;
+        }
+
+        .notice-info ul {
+          list-style: none;
+          padding: 0;
+        }
+
+        .notice-info li {
+          color: var(--text-muted);
+          padding: 0.5rem 0;
+          padding-left: 1.5rem;
+          position: relative;
+        }
+
+        .notice-info li:before {
+          content: "→";
+          position: absolute;
+          left: 0;
+          color: var(--accent);
         }
 
         @media (max-width: 768px) {
