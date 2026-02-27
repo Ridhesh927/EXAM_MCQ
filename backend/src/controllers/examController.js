@@ -47,11 +47,31 @@ exports.createExam = async (req, res) => {
     }
 };
 
-// Get All Exams (for Teacher)
+// Get All Exams (for any Teacher - shared view)
 exports.getTeacherExams = async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM exams WHERE teacher_id = ?', [req.user.id]);
+        const [rows] = await pool.query(
+            `SELECT e.*, t.username as created_by
+             FROM exams e
+             LEFT JOIN teachers t ON e.teacher_id = t.id
+             ORDER BY e.created_at DESC`
+        );
         res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Delete Exam (any teacher can delete any exam)
+exports.deleteExam = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [result] = await pool.query('DELETE FROM exams WHERE id = ?', [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Exam not found' });
+        }
+        logger('DELETE_EXAM', `Exam ID ${id} deleted by teacher ID ${req.user.id}`);
+        res.json({ message: 'Exam deleted successfully' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
