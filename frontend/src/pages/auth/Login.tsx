@@ -123,11 +123,11 @@ const Login = () => {
               )}
 
               <div className="form-group">
-                <label>{isStudent ? 'Email or PRN' : 'Institutional Email'}</label>
+                <label>{isStudent ? 'PRN' : 'Institutional Email'}</label>
                 <input
                   type="text"
                   className="neo-input"
-                  placeholder={isStudent ? "e.g. STU001 or scholar@academy.edu" : "e.g. instructor@academy.edu"}
+                  placeholder={isStudent ? "e.g. STU001" : "e.g. instructor@academy.edu"}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   required
@@ -159,19 +159,7 @@ const Login = () => {
                 {loading ? 'Logging in...' : 'Access Dashboard'} <LogIn size={18} />
               </button>
 
-              {isStudent && (
-                <button
-                  type="button"
-                  className="neo-btn-secondary auth-submit"
-                  style={{ marginTop: '1rem' }}
-                  onClick={() => {
-                    setIdentifier('DEMO123');
-                    setPassword('password123');
-                  }}
-                >
-                  Demo Login (Student)
-                </button>
-              )}
+
             </form>
 
             <div className="auth-footer">

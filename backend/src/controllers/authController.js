@@ -186,7 +186,7 @@ exports.adminCreateTeacher = async (req, res) => {
 // Admin: Create Student
 exports.adminCreateStudent = async (req, res) => {
     try {
-        const { username, email, password, prn_number } = req.body;
+        const { username, email, password, prn_number, department, year } = req.body;
 
         if (!username || !email || !password || !prn_number) {
             return res.status(400).json({ message: 'All fields are required' });
@@ -195,15 +195,15 @@ exports.adminCreateStudent = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const [result] = await pool.query(
-            'INSERT INTO students (username, email, password, prn_number) VALUES (?, ?, ?, ?)',
-            [username, email, hashedPassword, prn_number]
+            'INSERT INTO students (username, email, password, prn_number, department, year) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, email, hashedPassword, prn_number, department || null, year || null]
         );
 
         logger('ADMIN_CREATE_STUDENT', `Admin created student: ${username} (${email})`, { id: result.insertId, prn: prn_number });
 
         res.status(201).json({
             message: 'Student created successfully',
-            student: { id: result.insertId, username, email, prn_number }
+            student: { id: result.insertId, username, email, prn_number, department, year }
         });
     } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
@@ -226,7 +226,7 @@ exports.adminCreateBulkStudents = async (req, res) => {
 
         for (const student of students) {
             try {
-                const { username, email, password, prn_number } = student;
+                const { username, email, password, prn_number, department, year } = student;
 
                 if (!username || !email || !password || !prn_number) {
                     results.failed.push({ student, reason: 'Missing required fields' });
@@ -235,8 +235,8 @@ exports.adminCreateBulkStudents = async (req, res) => {
 
                 const hashedPassword = await bcrypt.hash(password, 10);
                 const [result] = await pool.query(
-                    'INSERT INTO students (username, email, password, prn_number) VALUES (?, ?, ?, ?)',
-                    [username, email, hashedPassword, prn_number]
+                    'INSERT INTO students (username, email, password, prn_number, department, year) VALUES (?, ?, ?, ?, ?, ?)',
+                    [username, email, hashedPassword, prn_number, department || null, year || null]
                 );
 
                 results.success.push({ id: result.insertId, username, email, prn_number });
@@ -315,7 +315,7 @@ exports.getAllTeachers = async (req, res) => {
 exports.getAllStudents = async (req, res) => {
     try {
         const [students] = await pool.query(
-            'SELECT id, username, email, prn_number, created_at FROM students ORDER BY created_at DESC'
+            'SELECT id, username, email, prn_number, department, year, created_at FROM students ORDER BY created_at DESC'
         );
         res.json({ students });
     } catch (error) {
