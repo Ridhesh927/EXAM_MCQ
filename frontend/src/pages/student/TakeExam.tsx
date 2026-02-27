@@ -12,6 +12,7 @@ import {
 import { io, Socket } from 'socket.io-client';
 import Peer from 'simple-peer';
 import * as faceapi from 'face-api.js';
+import { getToken, getUser } from '../../utils/auth';
 
 
 
@@ -261,7 +262,7 @@ const TakeExam = () => {
       if (!hasStarted.current) {
         hasStarted.current = true;
         try {
-          const token = localStorage.getItem('token');
+          const token = getToken('student');
           const res = await axios.post('/api/exams/session/start',
             { examId: id },
             {
@@ -276,7 +277,7 @@ const TakeExam = () => {
           // Initialize Socket and Signaling
           const socket = io();
           socketRef.current = socket;
-          const user = JSON.parse(localStorage.getItem('user') || '{}');
+          const user = getUser('student') || {};
 
           socket.emit('join-room', {
             examId: Number(id),
@@ -321,7 +322,7 @@ const TakeExam = () => {
   };
 
   const createPeer = (userToSignal: string, callerId: string, stream: MediaStream) => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = getUser('student') || {};
     const peer = new Peer({
       initiator: true,
       trickle: false,
@@ -336,7 +337,7 @@ const TakeExam = () => {
   };
 
   const addPeer = (incomingSignal: any, callerId: string, stream: MediaStream) => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = getUser('student') || {};
     const peer = new Peer({
       initiator: false,
       trickle: false,

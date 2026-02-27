@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { getToken } from '../../utils/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     UserPlus,
@@ -31,7 +32,7 @@ const ManageStudents = () => {
 
     const fetchStudents = async () => {
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('teacher');
             const response = await fetch('http://localhost:5000/api/auth/admin/students', {
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -54,7 +55,7 @@ const ManageStudents = () => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('teacher');
             const response = await fetch('http://localhost:5000/api/auth/admin/create-student', {
                 method: 'POST',
                 headers: {
@@ -99,7 +100,7 @@ const ManageStudents = () => {
                     password: row.Password || row.password || 'Student@123' // Default password if missing
                 }));
 
-                const token = localStorage.getItem('token');
+                const token = getToken('teacher');
                 const response = await fetch('http://localhost:5000/api/auth/admin/bulk-students', {
                     method: 'POST',
                     headers: {

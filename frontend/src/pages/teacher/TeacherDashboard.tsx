@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Users, FileText, CheckCircle2, MoreHorizontal } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
+import { getToken } from '../../utils/auth';
 
 const TeacherDashboard = () => {
     const [stats, setStats] = useState({
@@ -17,7 +18,7 @@ const TeacherDashboard = () => {
 
     const fetchStats = async () => {
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('teacher');
             const response = await fetch('http://localhost:5000/api/exams/teacher/stats', {
                 headers: { Authorization: `Bearer ${token}` }
             });

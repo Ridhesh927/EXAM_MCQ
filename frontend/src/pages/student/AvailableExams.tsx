@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Clock, ChevronRight, Loader2 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
+import { getToken } from '../../utils/auth';
 
 const AvailableExams = () => {
     const navigate = useNavigate();
@@ -13,7 +14,7 @@ const AvailableExams = () => {
     useEffect(() => {
         const fetchExams = async () => {
             try {
-                const token = localStorage.getItem('token');
+                const token = getToken('student');
                 const response = await fetch('http://localhost:5000/api/exams/student/available', {
                     headers: { Authorization: `Bearer ${token}` }
                 });

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getToken } from '../../utils/auth';
 import { motion } from 'framer-motion';
 import {
     TrendingUp,
@@ -22,7 +23,7 @@ const ViewResults = () => {
 
     const fetchResults = async () => {
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('teacher');
             const response = await fetch('http://localhost:5000/api/exams/teacher/results', {
                 headers: { Authorization: `Bearer ${token}` }
             });

@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import Galaxy from '../../components/Galaxy/Galaxy';
+import { setAuth } from '../../utils/auth';
 
 const STUDENT_HUE = 160;
 const TEACHER_HUE = 250;
@@ -59,9 +60,9 @@ const Login = () => {
         return;
       }
 
-      // Store token and user data
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      // Store token and user data under role-specific keys
+      const role = isStudent ? 'student' : 'teacher';
+      setAuth(role, data.token, data.user);
 
       // Navigate to appropriate dashboard
       if (isStudent) {

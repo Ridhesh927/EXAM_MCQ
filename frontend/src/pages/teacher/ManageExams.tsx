@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
+import { getToken } from '../../utils/auth';
 
 const ManageExams = () => {
     const navigate = useNavigate();
@@ -31,7 +32,7 @@ const ManageExams = () => {
 
     const fetchExams = async () => {
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('teacher');
             const response = await fetch('http://localhost:5000/api/exams/teacher/my-exams', {
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -62,7 +63,7 @@ const ManageExams = () => {
     const confirmDelete = async () => {
         if (!examToDelete) return;
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('teacher');
             const response = await fetch(`http://localhost:5000/api/exams/teacher/delete/${examToDelete}`, {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${token}` }
