@@ -27,6 +27,8 @@ const CreateExam = () => {
         subject: '',
         duration: 60,
         passingMarks: 40,
+        target_department: '',
+        target_year: '',
         questions: [] as any[]
     });
 
@@ -71,9 +73,11 @@ const CreateExam = () => {
                 title: examData.title,
                 subject: examData.subject,
                 duration: examData.duration,
-                total_marks: examData.questions.length * 5, // Assuming 5 marks per question
+                total_marks: examData.questions.length * 5,
                 passing_marks: examData.passingMarks,
                 instructions: 'Please read all questions carefully before answering.',
+                target_department: examData.target_department || null,
+                target_year: examData.target_year || null,
                 questions: examData.questions.map(q => ({
                     question: q.text,
                     options: q.options,
@@ -188,6 +192,36 @@ const CreateExam = () => {
                                             onChange={(e) => setExamData({ ...examData, duration: parseInt(e.target.value) })}
                                         />
                                     </div>
+                                    <div className="form-group">
+                                        <label>Target Department <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Optional — leave blank for all)</span></label>
+                                        <select
+                                            className="neo-input"
+                                            value={examData.target_department}
+                                            onChange={(e) => setExamData({ ...examData, target_department: e.target.value })}
+                                        >
+                                            <option value="">All Departments</option>
+                                            <option>Computer Science (CSE)</option>
+                                            <option>Information Technology (IT)</option>
+                                            <option>Electronics & Telecom (ENTC)</option>
+                                            <option>Mechanical Engineering</option>
+                                            <option>Civil Engineering</option>
+                                            <option>Electrical Engineering</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Target Year <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Optional — leave blank for all)</span></label>
+                                        <select
+                                            className="neo-input"
+                                            value={examData.target_year}
+                                            onChange={(e) => setExamData({ ...examData, target_year: e.target.value })}
+                                        >
+                                            <option value="">All Years</option>
+                                            <option>First Year</option>
+                                            <option>Second Year</option>
+                                            <option>Third Year</option>
+                                            <option>Fourth Year</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </motion.div>
                         )}
@@ -287,6 +321,8 @@ const CreateExam = () => {
                                     <div className="r-item"><span>Title</span> <strong>{examData.title || 'Untitled'}</strong></div>
                                     <div className="r-item"><span>Subject</span> <strong>{examData.subject || 'Not specified'}</strong></div>
                                     <div className="r-item"><span>Questions</span> <strong>{examData.questions.length}</strong></div>
+                                    <div className="r-item"><span>Target Dept.</span> <strong>{examData.target_department || 'All Departments'}</strong></div>
+                                    <div className="r-item"><span>Target Year</span> <strong>{examData.target_year || 'All Years'}</strong></div>
                                     <div className="r-item"><span>Security</span> <strong className="text-success">AI Proctoring Enabled</strong></div>
                                 </div>
                             </motion.div>

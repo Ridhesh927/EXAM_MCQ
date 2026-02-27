@@ -1,11 +1,36 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, ChevronRight } from 'lucide-react';
+import { Clock, ChevronRight, Loader2 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
-import { MOCK_EXAMS } from '../../utils/mockData';
 import { useNavigate } from 'react-router-dom';
 
 const AvailableExams = () => {
     const navigate = useNavigate();
+    const [exams, setExams] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        const fetchExams = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch('http://localhost:5000/api/exams/student/available', {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const data = await response.json();
+                if (data.exams) {
+                    setExams(data.exams);
+                } else {
+                    setError(data.message || 'Failed to load exams.');
+                }
+            } catch (err) {
+                setError('Could not connect to server.');
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchExams();
+    }, []);
 
     return (
         <DashboardLayout userType="student">
@@ -20,46 +45,58 @@ const AvailableExams = () => {
                     </motion.div>
                 </header>
 
-                <div className="exams-grid">
-                    {MOCK_EXAMS.map((exam, i) => (
-                        <motion.div
-                            key={exam.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.1 }}
-                            className="neo-card exam-card"
-                        >
-                            <div className="exam-card-header">
-                                <span className={`difficulty-indicator ${exam.difficulty.toLowerCase()}`}>
-                                    {exam.difficulty}
-                                </span>
-                                <div className="marks-badge">
-                                    <span>Total Marks</span>
-                                    <strong>{exam.totalMarks}</strong>
+                {loading ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '4rem', color: 'var(--text-muted)' }}>
+                        <Loader2 className="animate-spin" size={36} />
+                        <p>Loading assessments...</p>
+                    </div>
+                ) : error ? (
+                    <div style={{ padding: '4rem', textAlign: 'center', color: '#ef4444' }}>
+                        <p>❌ {error}</p>
+                    </div>
+                ) : exams.length === 0 ? (
+                    <div style={{ padding: '4rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <p>No exams are available right now. Please check back later.</p>
+                    </div>
+                ) : (
+                    <div className="exams-grid">
+                        {exams.map((exam, i) => (
+                            <motion.div
+                                key={exam.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: i * 0.1 }}
+                                className="neo-card exam-card"
+                            >
+                                <div className="exam-card-header">
+                                    <span className="difficulty-indicator">{exam.subject}</span>
+                                    <div className="marks-badge">
+                                        <span>Total Marks</span>
+                                        <strong>{exam.total_marks}</strong>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div className="exam-card-body">
-                                <span className="subject-label">{exam.subject}</span>
-                                <h3>{exam.title}</h3>
-                                <p className="text-secondary">{exam.description}</p>
-                            </div>
-
-                            <div className="exam-card-footer">
-                                <div className="duration">
-                                    <Clock size={16} />
-                                    <span>{exam.duration} Minutes</span>
+                                <div className="exam-card-body">
+                                    <h3>{exam.title}</h3>
+                                    <p className="text-secondary">{exam.instructions || `${exam.question_count || 0} questions · Pass: ${exam.passing_marks} marks`}</p>
                                 </div>
-                                <button
-                                    className="begin-btn"
-                                    onClick={() => navigate(`/student/exam/${exam.id}`)}
-                                >
-                                    Enter session <ChevronRight size={18} />
-                                </button>
-                            </div>
-                        </motion.div>
-                    ))}
-                </div>
+
+                                <div className="exam-card-footer">
+                                    <div className="duration">
+                                        <Clock size={16} />
+                                        <span>{exam.duration} Minutes</span>
+                                    </div>
+                                    <button
+                                        className="begin-btn"
+                                        onClick={() => navigate(`/student/exam/${exam.id}`)}
+                                    >
+                                        Enter session <ChevronRight size={18} />
+                                    </button>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                )}
 
                 <style>{`
                     .exams-page {
@@ -107,11 +144,9 @@ const AvailableExams = () => {
                         padding: 0.25rem 0.5rem;
                         border: 1px solid var(--border);
                         border-radius: 4px;
+                        color: var(--accent);
+                        border-color: var(--accent);
                     }
-
-                    .difficulty-indicator.hard { color: var(--error); border-color: var(--error); }
-                    .difficulty-indicator.medium { color: var(--accent); border-color: var(--accent); }
-                    .difficulty-indicator.easy { color: var(--success); border-color: var(--success); }
 
                     .marks-badge {
                         display: flex;
@@ -121,15 +156,6 @@ const AvailableExams = () => {
 
                     .marks-badge span { font-size: 0.625rem; text-transform: uppercase; color: var(--text-muted); }
                     .marks-badge strong { font-family: var(--font-display); color: var(--accent); }
-
-                    .subject-label {
-                        font-size: 0.75rem;
-                        font-weight: 700;
-                        color: var(--accent);
-                        text-transform: uppercase;
-                        margin-bottom: 0.5rem;
-                        display: block;
-                    }
 
                     .exam-card-body h3 {
                         font-size: 1.5rem;

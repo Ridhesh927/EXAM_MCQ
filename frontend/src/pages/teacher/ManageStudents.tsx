@@ -18,9 +18,10 @@ import * as XLSX from 'xlsx';
 const ManageStudents = () => {
     const [students, setStudents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
-    const [newStudent, setNewStudent] = useState({ username: '', email: '', prn_number: '', password: '' });
+    const [newStudent, setNewStudent] = useState({ username: '', email: '', prn_number: '', password: '', department: '', year: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -35,11 +36,15 @@ const ManageStudents = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const data = await response.json();
-            if (data.students) {
+            console.log('[Students API] Status:', response.status, 'Data:', data);
+            if (!response.ok) {
+                setFetchError(data.message || `Error ${response.status}`);
+            } else if (data.students) {
                 setStudents(data.students);
             }
         } catch (error) {
             console.error('Failed to fetch students', error);
+            setFetchError('Failed to connect to server.');
         } finally {
             setLoading(false);
         }
@@ -61,7 +66,7 @@ const ManageStudents = () => {
 
             if (response.ok) {
                 setShowAddModal(false);
-                setNewStudent({ username: '', email: '', prn_number: '', password: '' });
+                setNewStudent({ username: '', email: '', prn_number: '', password: '', department: '', year: '' });
                 fetchStudents();
             } else {
                 alert('Failed to create student');
@@ -182,6 +187,11 @@ const ManageStudents = () => {
                             <Loader2 className="animate-spin text-accent" size={32} />
                             <p>Loading directory...</p>
                         </div>
+                    ) : fetchError ? (
+                        <div className="empty-state" style={{ color: '#ef4444' }}>
+                            <p>❌ Error loading students: {fetchError}</p>
+                            <p style={{ fontSize: '0.75rem', color: '#a1a1aa' }}>Check browser console (F12) for details.</p>
+                        </div>
                     ) : filteredStudents.length === 0 ? (
                         <div className="empty-state">
                             <p>No students found.</p>
@@ -204,6 +214,8 @@ const ManageStudents = () => {
                                                 <ShieldCheck size={12} /> Active
                                             </span>
                                             <span className="prn-badge">{student.prn_number}</span>
+                                            {student.department && <span className="dept-badge">{student.department}</span>}
+                                            {student.year && <span className="prn-badge">{student.year}</span>}
                                         </div>
                                     </div>
                                     <button className="icon-btn"><MoreHorizontal size={20} /></button>
@@ -275,6 +287,38 @@ const ManageStudents = () => {
                                         />
                                     </div>
                                     <div className="form-group">
+                                        <label>Department</label>
+                                        <select
+                                            required
+                                            className="neo-input"
+                                            value={newStudent.department}
+                                            onChange={(e) => setNewStudent({ ...newStudent, department: e.target.value })}
+                                        >
+                                            <option value="">Select Department</option>
+                                            <option>Computer Science (CSE)</option>
+                                            <option>Information Technology (IT)</option>
+                                            <option>Electronics & Telecom (ENTC)</option>
+                                            <option>Mechanical Engineering</option>
+                                            <option>Civil Engineering</option>
+                                            <option>Electrical Engineering</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Year</label>
+                                        <select
+                                            required
+                                            className="neo-input"
+                                            value={newStudent.year}
+                                            onChange={(e) => setNewStudent({ ...newStudent, year: e.target.value })}
+                                        >
+                                            <option value="">Select Year</option>
+                                            <option>First Year</option>
+                                            <option>Second Year</option>
+                                            <option>Third Year</option>
+                                            <option>Fourth Year</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
                                         <label>Password</label>
                                         <input
                                             type="password"
@@ -318,6 +362,7 @@ const ManageStudents = () => {
           
           .badges { display: flex; gap: 0.5rem; align-items: center; }
           .prn-badge { font-size: 0.625rem; background: var(--surface); padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--text-muted); font-family: monospace; }
+          .dept-badge { font-size: 0.625rem; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.3); padding: 0.2rem 0.5rem; border-radius: 4px; color: #f97316; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
           .status-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
           .status-badge.active { background: rgba(16, 185, 129, 0.1); color: #10b981; }
           

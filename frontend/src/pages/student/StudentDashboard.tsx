@@ -1,11 +1,35 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, BookCheck, ArrowRight } from 'lucide-react';
+import { Clock, BookCheck, ArrowRight, Loader2 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
-import { MOCK_STATS, MOCK_EXAMS } from '../../utils/mockData';
 import { useNavigate } from 'react-router-dom';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
+  const [exams, setExams] = useState<any[]>([]);
+  const [examsTaken, setExamsTaken] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:5000/api/exams/student/available', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.exams) {
+          setExams(data.exams);
+        }
+      } catch (error) {
+        console.error('Failed to fetch exams', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
   return (
     <DashboardLayout userType="student">
       <div className="dashboard-page">
@@ -22,7 +46,7 @@ const StudentDashboard = () => {
 
         <div className="stats-grid">
           {[
-            { label: 'Exams Finalized', value: MOCK_STATS.examsTaken, icon: <BookCheck />, color: 'var(--accent)' },
+            { label: 'Exams Available', value: loading ? '...' : exams.length, icon: <BookCheck />, color: 'var(--accent)' },
           ].map((stat, i) => (
             <motion.div
               key={stat.label}
@@ -43,37 +67,47 @@ const StudentDashboard = () => {
         <section className="dashboard-section">
           <div className="section-header">
             <h2>Priority Examinations</h2>
-            <button className="text-btn">View All <ArrowRight size={16} /></button>
+            <button className="text-btn" onClick={() => navigate('/student/exams')}>View All <ArrowRight size={16} /></button>
           </div>
 
           <div className="exam-quick-list">
-            {MOCK_EXAMS.slice(0, 2).map((exam, i) => (
-              <motion.div
-                key={exam.id}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 + (i * 0.1) }}
-                className="neo-card exam-card-horizontal"
-              >
-                <div className="exam-info">
-                  <span className="subject-tag">{exam.subject}</span>
-                  <h3>{exam.title}</h3>
-                  <p className="text-muted">{exam.description}</p>
-                </div>
-                <div className="exam-meta">
-                  <div className="meta-item">
-                    <Clock size={16} />
-                    <span>{exam.duration} Minutes</span>
+            {loading ? (
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                <Loader2 className="animate-spin" size={24} /> Loading exams...
+              </div>
+            ) : exams.length === 0 ? (
+              <div className="neo-card" style={{ padding: '2rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                No exams available at the moment. Check back soon!
+              </div>
+            ) : (
+              exams.slice(0, 2).map((exam, i) => (
+                <motion.div
+                  key={exam.id}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.4 + (i * 0.1) }}
+                  className="neo-card exam-card-horizontal"
+                >
+                  <div className="exam-info">
+                    <span className="subject-tag">{exam.subject}</span>
+                    <h3>{exam.title}</h3>
+                    <p className="text-muted">{exam.instructions || `${exam.question_count || 0} questions · ${exam.total_marks} marks`}</p>
                   </div>
-                  <button
-                    className="neo-btn-primary"
-                    onClick={() => navigate(`/student/exam/${exam.id}`)}
-                  >
-                    Initiate
-                  </button>
-                </div>
-              </motion.div>
-            ))}
+                  <div className="exam-meta">
+                    <div className="meta-item">
+                      <Clock size={16} />
+                      <span>{exam.duration} Minutes</span>
+                    </div>
+                    <button
+                      className="neo-btn-primary"
+                      onClick={() => navigate(`/student/exam/${exam.id}`)}
+                    >
+                      Initiate
+                    </button>
+                  </div>
+                </motion.div>
+              ))
+            )}
           </div>
         </section>
 

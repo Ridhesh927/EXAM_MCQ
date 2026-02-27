@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 // Create Exam
 exports.createExam = async (req, res) => {
     try {
-        const { title, subject, duration, total_marks, passing_marks, instructions, questions } = req.body;
+        const { title, subject, duration, total_marks, passing_marks, instructions, questions, target_department, target_year } = req.body;
         const teacher_id = req.user.id;
 
         // Start transaction
@@ -14,8 +14,8 @@ exports.createExam = async (req, res) => {
 
         try {
             const [examResult] = await connection.query(
-                'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [title, subject, duration, total_marks, passing_marks, instructions, teacher_id]
+                'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department, target_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department || null, target_year || null]
             );
 
             const examId = examResult.insertId;
@@ -56,6 +56,33 @@ exports.getTeacherExams = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+// Get Available Exams (for Student - filtered by their department and year)
+exports.getAvailableExams = async (req, res) => {
+    try {
+        // Get the student's own department and year from the DB
+        const [studentRows] = await pool.query(
+            'SELECT department, year FROM students WHERE id = ?', [req.user.id]
+        );
+        const student = studentRows[0] || {};
+
+        const [rows] = await pool.query(
+            `SELECT e.id, e.title, e.subject, e.duration, e.total_marks, e.passing_marks, e.instructions, e.status,
+             e.target_department, e.target_year,
+             (SELECT COUNT(*) FROM exam_questions WHERE exam_id = e.id) as question_count
+             FROM exams e
+             WHERE e.status = 'Published'
+             AND (e.target_department IS NULL OR e.target_department = ?)
+             AND (e.target_year IS NULL OR e.target_year = ?)
+             ORDER BY e.created_at DESC`,
+            [student.department || null, student.year || null]
+        );
+        res.json({ exams: rows });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 
 // Get Exam Details (for Student)
 exports.getExamDetails = async (req, res) => {
