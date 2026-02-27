@@ -60,10 +60,24 @@ const ManageExams = () => {
     };
 
     const confirmDelete = async () => {
-        // TODO: Implement API call to delete exam
-        console.log('Deleting exam:', examToDelete);
-        setShowDeleteModal(false);
-        setExamToDelete(null);
+        if (!examToDelete) return;
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:5000/api/exams/teacher/delete/${examToDelete}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (response.ok) {
+                setExams(prev => prev.filter(e => e.id !== examToDelete));
+            } else {
+                alert('Failed to delete exam.');
+            }
+        } catch (err) {
+            alert('Error deleting exam.');
+        } finally {
+            setShowDeleteModal(false);
+            setExamToDelete(null);
+        }
     };
 
     const handleSchedule = (examId: string) => {
@@ -145,6 +159,14 @@ const ManageExams = () => {
                                                 <Calendar size={14} />
                                                 {exam.created_at ? new Date(exam.created_at).toLocaleDateString() : 'N/A'}
                                             </span>
+                                            {exam.created_by && (
+                                                <><span className="dot"></span>
+                                                    <span style={{ color: 'var(--accent)', fontWeight: 600 }}>by {exam.created_by}</span></>
+                                            )}
+                                            {exam.target_department && (
+                                                <><span className="dot"></span>
+                                                    <span>{exam.target_department} · {exam.target_year || 'All Years'}</span></>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
