@@ -158,6 +158,20 @@ const Login = () => {
               <button type="submit" className="neo-btn-primary auth-submit" disabled={loading}>
                 {loading ? 'Logging in...' : 'Access Dashboard'} <LogIn size={18} />
               </button>
+
+              {isStudent && (
+                <button
+                  type="button"
+                  className="neo-btn-secondary auth-submit"
+                  style={{ marginTop: '1rem' }}
+                  onClick={() => {
+                    setIdentifier('DEMO123');
+                    setPassword('password123');
+                  }}
+                >
+                  Demo Login (Student)
+                </button>
+              )}
             </form>
 
             <div className="auth-footer">

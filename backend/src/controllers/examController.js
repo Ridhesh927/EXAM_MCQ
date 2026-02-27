@@ -1,5 +1,6 @@
 const { pool } = require('../config/db');
 const xlsx = require('xlsx');
+const logger = require('../utils/logger');
 
 // Create Exam
 exports.createExam = async (req, res) => {
@@ -30,6 +31,9 @@ exports.createExam = async (req, res) => {
             }
 
             await connection.commit();
+
+            logger('CREATE_EXAM', `Teacher ID ${teacher_id} created exam: ${title}`, { examId, subject });
+
             res.status(201).json({ message: 'Exam created successfully', examId });
         } catch (error) {
             await connection.rollback();
@@ -38,6 +42,7 @@ exports.createExam = async (req, res) => {
             connection.release();
         }
     } catch (error) {
+        logger('CREATE_EXAM_ERROR', `Error creating exam`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -110,8 +115,11 @@ exports.submitExam = async (req, res) => {
             [studentId, examId]
         );
 
+        logger('SUBMIT_EXAM', `Student ID ${studentId} submitted exam ID ${examId}`, { score, resultId: result.insertId });
+
         res.json({ message: 'Exam submitted successfully', score, resultId: result.insertId });
     } catch (error) {
+        logger('SUBMIT_EXAM_ERROR', `Error submitting exam ID ${req.body.examId}`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -136,6 +144,8 @@ exports.startExamSession = async (req, res) => {
             'INSERT INTO exam_sessions (student_id, exam_id) VALUES (?, ?)',
             [studentId, examId]
         );
+
+        logger('START_EXAM_SESSION', `Student ID ${studentId} started exam ID ${examId}`, { sessionId: result.insertId });
 
         res.status(201).json({ message: 'Session started', sessionId: result.insertId });
     } catch (error) {
@@ -295,6 +305,35 @@ exports.uploadBulkQuestions = async (req, res) => {
         }
 
         res.json({ message: 'Questions parsed successfully', questions });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get All Results for Teacher
+exports.getTeacherResults = async (req, res) => {
+    try {
+        const teacherId = req.user.id;
+
+        const [results] = await pool.query(`
+            SELECT 
+                er.id,
+                er.score,
+                er.total_questions,
+                er.correct_answers,
+                er.submitted_at,
+                s.username as student_name,
+                s.email as student_email,
+                e.title as exam_title,
+                e.total_marks
+            FROM exam_results er
+            JOIN exams e ON er.exam_id = e.id
+            JOIN students s ON er.student_id = s.id
+            WHERE e.teacher_id = ?
+            ORDER BY er.submitted_at DESC
+        `, [teacherId]);
+
+        res.json({ results });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
