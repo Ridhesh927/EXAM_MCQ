@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Plus,
@@ -9,24 +9,42 @@ import {
     Layers,
     Trash2,
     Edit,
-    Clock
+    Clock,
+    Loader2
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 
 const ManageExams = () => {
     const navigate = useNavigate();
+    const [exams, setExams] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [examToDelete, setExamToDelete] = useState<string | null>(null);
 
-    const exams = [
-        { id: '1', title: 'Advanced Thermodynamics', subject: 'Physics', students: 42, date: '2025-05-12', status: 'Active' },
-        { id: '2', title: 'Digital Logic Design', subject: 'CS', students: 128, date: '2025-05-15', status: 'Draft' },
-        { id: '3', title: 'Renaissance Art History', subject: 'History', students: 56, date: '2025-05-18', status: 'Scheduled' },
-    ];
+    useEffect(() => {
+        fetchExams();
+    }, []);
+
+    const fetchExams = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/exams/teacher/my-exams', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (Array.isArray(data)) {
+                setExams(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch exams', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const filteredExams = exams.filter(exam => {
         const matchesSearch = exam.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -41,9 +59,9 @@ const ManageExams = () => {
         setActiveMenu(null);
     };
 
-    const confirmDelete = () => {
+    const confirmDelete = async () => {
+        // TODO: Implement API call to delete exam
         console.log('Deleting exam:', examToDelete);
-        // TODO: API call to delete exam
         setShowDeleteModal(false);
         setExamToDelete(null);
     };
@@ -96,70 +114,84 @@ const ManageExams = () => {
                 </div>
 
                 <div className="exams-inventory">
-                    {filteredExams.map((exam, i) => (
-                        <motion.div
-                            key={exam.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: i * 0.1 }}
-                            className="inventory-item neo-card"
-                        >
-                            <div className="item-main">
-                                <div className="item-icon">
-                                    <Layers size={24} className="text-accent" />
-                                </div>
-                                <div className="item-details">
-                                    <h3>{exam.title}</h3>
-                                    <div className="item-meta">
-                                        <span>{exam.subject}</span>
-                                        <span className="dot"></span>
-                                        <span className="meta-icon"><Calendar size={14} /> {exam.date}</span>
-                                        <span className="dot"></span>
-                                        <span className="meta-icon"><Users size={14} /> {exam.students} Students</span>
+                    {loading ? (
+                        <div className="loading-state">
+                            <Loader2 className="animate-spin text-accent" size={32} />
+                            <p>Loading exams...</p>
+                        </div>
+                    ) : filteredExams.length === 0 ? (
+                        <div className="empty-state">
+                            <p>No exams found.</p>
+                        </div>
+                    ) : (
+                        filteredExams.map((exam, i) => (
+                            <motion.div
+                                key={exam.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: i * 0.1 }}
+                                className="inventory-item neo-card"
+                            >
+                                <div className="item-main">
+                                    <div className="item-icon">
+                                        <Layers size={24} className="text-accent" />
+                                    </div>
+                                    <div className="item-details">
+                                        <h3>{exam.title}</h3>
+                                        <div className="item-meta">
+                                            <span>{exam.subject}</span>
+                                            <span className="dot"></span>
+                                            <span className="meta-icon">
+                                                <Calendar size={14} />
+                                                {exam.created_at ? new Date(exam.created_at).toLocaleDateString() : 'N/A'}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div className="item-status">
-                                <span className={`status-pill ${exam.status.toLowerCase()}`}>{exam.status}</span>
-                                <div className="action-menu-wrapper">
-                                    <button
-                                        className="icon-btn"
-                                        onClick={() => setActiveMenu(activeMenu === exam.id ? null : exam.id)}
-                                    >
-                                        <MoreVertical size={20} />
-                                    </button>
+                                <div className="item-status">
+                                    <span className={`status-pill ${exam.status ? exam.status.toLowerCase() : 'draft'}`}>
+                                        {exam.status || 'Draft'}
+                                    </span>
+                                    <div className="action-menu-wrapper">
+                                        <button
+                                            className="icon-btn"
+                                            onClick={() => setActiveMenu(activeMenu === exam.id ? null : exam.id)}
+                                        >
+                                            <MoreVertical size={20} />
+                                        </button>
 
-                                    <AnimatePresence>
-                                        {activeMenu === exam.id && (
-                                            <motion.div
-                                                initial={{ opacity: 0, y: -10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                exit={{ opacity: 0, y: -10 }}
-                                                transition={{ duration: 0.2 }}
-                                                className="action-dropdown"
-                                            >
-                                                <button onClick={() => handleEdit(exam.id)} className="dropdown-item">
-                                                    <Edit size={16} /> Edit Exam
-                                                </button>
-                                                <button
-                                                    onClick={() => handleSchedule(exam.id)}
-                                                    className="dropdown-item"
-                                                    disabled={exam.status === 'Scheduled'}
+                                        <AnimatePresence>
+                                            {activeMenu === exam.id && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, y: -10 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    exit={{ opacity: 0, y: -10 }}
+                                                    transition={{ duration: 0.2 }}
+                                                    className="action-dropdown"
                                                 >
-                                                    <Clock size={16} /> {exam.status === 'Scheduled' ? 'Reschedule' : 'Schedule'}
-                                                </button>
-                                                <div className="dropdown-divider"></div>
-                                                <button onClick={() => handleDelete(exam.id)} className="dropdown-item danger">
-                                                    <Trash2 size={16} /> Delete Exam
-                                                </button>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
+                                                    <button onClick={() => handleEdit(exam.id)} className="dropdown-item">
+                                                        <Edit size={16} /> Edit Exam
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleSchedule(exam.id)}
+                                                        className="dropdown-item"
+                                                        disabled={exam.status === 'Scheduled'}
+                                                    >
+                                                        <Clock size={16} /> {exam.status === 'Scheduled' ? 'Reschedule' : 'Schedule'}
+                                                    </button>
+                                                    <div className="dropdown-divider"></div>
+                                                    <button onClick={() => handleDelete(exam.id)} className="dropdown-item danger">
+                                                        <Trash2 size={16} /> Delete Exam
+                                                    </button>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
                                 </div>
-                            </div>
-                        </motion.div>
-                    ))}
+                            </motion.div>
+                        ))
+                    )}
                 </div>
 
                 {/* Delete Confirmation Modal */}

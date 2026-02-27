@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
     TrendingUp,
@@ -5,17 +6,61 @@ import {
     ArrowRight,
     Download,
     Filter,
-    BarChart3
+    BarChart3,
+    Loader2
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
 const ViewResults = () => {
-    const results = [
-        { id: '1', student: 'Marcus Aurelius', exam: 'Philosophy 101', score: 92, status: 'Distinction' },
-        { id: '2', student: 'Seneca The Younger', exam: 'Stoicism Masterclass', score: 88, status: 'Merit' },
-        { id: '3', student: 'Epictetus', exam: 'Logic & Reason', score: 95, status: 'Distinction' },
-        { id: '4', student: 'Cicero', exam: 'Rhetoric & Law', score: 74, status: 'Pass' },
-    ];
+    const [results, setResults] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [stats, setStats] = useState({ avgScore: 0, completionRate: 0, distinctionRate: 0 });
+
+    useEffect(() => {
+        fetchResults();
+    }, []);
+
+    const fetchResults = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/exams/teacher/results', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (data.results) {
+                setResults(data.results);
+                calculateStats(data.results);
+            }
+        } catch (error) {
+            console.error('Failed to fetch results', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const calculateStats = (data: any[]) => {
+        if (data.length === 0) return;
+
+        const totalScore = data.reduce((acc, curr) => acc + (curr.score / curr.total_questions * 100), 0);
+        const avgScore = Math.round(totalScore / data.length);
+
+        const distinctionCount = data.filter(r => (r.score / r.total_questions) >= 0.75).length;
+        const distinctionRate = Math.round((distinctionCount / data.length) * 100);
+
+        setStats({
+            avgScore,
+            completionRate: 98, // Mocked for now (needs exam session data)
+            distinctionRate
+        });
+    };
+
+    const getStatus = (score: number, total: number) => {
+        const percentage = (score / total) * 100;
+        if (percentage >= 75) return 'Distinction';
+        if (percentage >= 60) return 'Merit';
+        if (percentage >= 35) return 'Pass';
+        return 'Fail';
+    };
 
     return (
         <DashboardLayout userType="teacher">
@@ -33,9 +78,9 @@ const ViewResults = () => {
 
                 <div className="analytics-overview">
                     {[
-                        { label: 'Avg. Class Score', value: '84%', icon: <TrendingUp className="text-accent" />, trend: '+3.2%' },
-                        { label: 'Completion Rate', value: '98%', icon: <BarChart3 className="text-accent" />, trend: '+0.5%' },
-                        { label: 'Distinction Rate', value: '24%', icon: <TrendingUp className="text-accent" />, trend: '+1.8%' },
+                        { label: 'Avg. Class Score', value: `${stats.avgScore}%`, icon: <TrendingUp className="text-accent" />, trend: 'N/A' },
+                        { label: 'Completion Rate', value: `${stats.completionRate}%`, icon: <BarChart3 className="text-accent" />, trend: 'N/A' },
+                        { label: 'Distinction Rate', value: `${stats.distinctionRate}%`, icon: <TrendingUp className="text-accent" />, trend: 'N/A' },
                     ].map((stat, i) => (
                         <motion.div
                             key={i}
@@ -65,42 +110,61 @@ const ViewResults = () => {
                         <button className="neo-btn-secondary"><Filter size={18} /> Filters</button>
                     </div>
 
-                    <table className="results-table">
-                        <thead>
-                            <tr>
-                                <th>Scholar Identity</th>
-                                <th>Assessment Module</th>
-                                <th>Result Percentage</th>
-                                <th>Status Mapping</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {results.map((res) => (
-                                <tr key={res.id}>
-                                    <td>
-                                        <div className="student-profile">
-                                            <div className="avatar-small">{res.student[0]}</div>
-                                            <span>{res.student}</span>
-                                        </div>
-                                    </td>
-                                    <td>{res.exam}</td>
-                                    <td className="score-cell">
-                                        <div className="score-bar-bg">
-                                            <div className="score-bar-fill" style={{ width: `${res.score}%` }}></div>
-                                        </div>
-                                        <span>{res.score}%</span>
-                                    </td>
-                                    <td>
-                                        <span className={`status-tag ${res.status.toLowerCase()}`}>{res.status}</span>
-                                    </td>
-                                    <td>
-                                        <button className="icon-btn-text">View Scripts <ArrowRight size={14} /></button>
-                                    </td>
+                    {loading ? (
+                        <div className="loading-state">
+                            <Loader2 className="animate-spin text-accent" size={32} />
+                            <p>Loading results...</p>
+                        </div>
+                    ) : results.length === 0 ? (
+                        <div className="empty-state">
+                            <p>No results found.</p>
+                        </div>
+                    ) : (
+                        <table className="results-table">
+                            <thead>
+                                <tr>
+                                    <th>Scholar Identity</th>
+                                    <th>Assessment Module</th>
+                                    <th>Result Percentage</th>
+                                    <th>Status Mapping</th>
+                                    <th>Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {results.map((res) => {
+                                    const percentage = Math.round((res.score / res.total_questions) * 100);
+                                    const status = getStatus(res.score, res.total_questions);
+
+                                    return (
+                                        <tr key={res.id}>
+                                            <td>
+                                                <div className="student-profile">
+                                                    <div className="avatar-small">{res.student_name.charAt(0).toUpperCase()}</div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                        <span>{res.student_name}</span>
+                                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{res.student_email}</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>{res.exam_title}</td>
+                                            <td className="score-cell">
+                                                <div className="score-bar-bg">
+                                                    <div className="score-bar-fill" style={{ width: `${percentage}%` }}></div>
+                                                </div>
+                                                <span>{percentage}%</span>
+                                            </td>
+                                            <td>
+                                                <span className={`status-tag ${status.toLowerCase()}`}>{status}</span>
+                                            </td>
+                                            <td>
+                                                <button className="icon-btn-text">View Scripts <ArrowRight size={14} /></button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
 
                 <style>{`

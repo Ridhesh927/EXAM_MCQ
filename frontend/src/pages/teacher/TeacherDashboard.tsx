@@ -1,8 +1,35 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Users, FileText, CheckCircle2, MoreHorizontal } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
 const TeacherDashboard = () => {
+    const [stats, setStats] = useState({
+        totalExams: 0,
+        activeSessions: 0,
+        recentResults: []
+    });
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        fetchStats();
+    }, []);
+
+    const fetchStats = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/exams/teacher/stats', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await response.json();
+            setStats(data);
+        } catch (error) {
+            console.error('Failed to fetch dashboard stats', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <DashboardLayout userType="teacher">
             <div className="dashboard-page">
@@ -15,10 +42,10 @@ const TeacherDashboard = () => {
 
                 <div className="stats-grid">
                     {[
-                        { label: 'Total Enrolled', value: '412', icon: <Users />, color: 'var(--accent)' },
-                        { label: 'Active Exams', value: '3', icon: <FileText />, color: 'var(--accent)' },
-                        { label: 'Completed Today', value: '89', icon: <CheckCircle2 />, color: 'var(--success)' },
-                        { label: 'Pending Reviews', value: '24', icon: <MoreHorizontal />, color: 'var(--accent)' },
+                        { label: 'Total Exams', value: stats.totalExams, icon: <FileText />, color: 'var(--accent)' },
+                        { label: 'Active Sessions', value: stats.activeSessions, icon: <Users />, color: 'var(--accent)' },
+                        { label: 'Completed Today', value: '-', icon: <CheckCircle2 />, color: 'var(--success)' },
+                        { label: 'Pending Reviews', value: '-', icon: <MoreHorizontal />, color: 'var(--accent)' },
                     ].map((stat, i) => (
                         <motion.div
                             key={stat.label}

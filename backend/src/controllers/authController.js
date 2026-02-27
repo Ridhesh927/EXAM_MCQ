@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { pool } = require('../config/db');
+const logger = require('../utils/logger');
 
 const generateToken = (id, role) => {
     return jwt.sign({ id, role }, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here', {
@@ -19,8 +20,11 @@ exports.registerTeacher = async (req, res) => {
             [username, email, hashedPassword]
         );
 
+        logger('REGISTER_TEACHER', `New teacher registered: ${username} (${email})`, { id: result.insertId });
+
         res.status(201).json({ message: 'Teacher registered successfully', id: result.insertId });
     } catch (error) {
+        logger('REGISTER_TEACHER_ERROR', `Failed to register teacher: ${req.body.email}`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -32,20 +36,29 @@ exports.loginTeacher = async (req, res) => {
 
         const [rows] = await pool.query('SELECT * FROM teachers WHERE email = ?', [email]);
 
-        if (rows.length === 0) return res.status(401).json({ message: 'Invalid credentials' });
+        if (rows.length === 0) {
+            logger('LOGIN_TEACHER_FAIL', `Invalid email: ${email}`);
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
 
         const teacher = rows[0];
         const isMatch = await bcrypt.compare(password, teacher.password);
 
-        if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+        if (!isMatch) {
+            logger('LOGIN_TEACHER_FAIL', `Invalid password for: ${email}`);
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
 
         const token = generateToken(teacher.id, 'teacher');
 
         // Store last token
         await pool.query('UPDATE teachers SET last_token = ? WHERE id = ?', [token, teacher.id]);
 
+        logger('LOGIN_TEACHER', `Teacher logged in: ${teacher.username} (${email})`, { id: teacher.id });
+
         res.json({ token, user: { id: teacher.id, username: teacher.username, email: teacher.email, role: 'teacher' } });
     } catch (error) {
+        logger('LOGIN_TEACHER_ERROR', `Login error for: ${req.body.email}`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -61,8 +74,11 @@ exports.registerStudent = async (req, res) => {
             [username, email, hashedPassword, prn_number]
         );
 
+        logger('REGISTER_STUDENT', `New student registered: ${username} (${email})`, { id: result.insertId, prn: prn_number });
+
         res.status(201).json({ message: 'Student registered successfully', id: result.insertId });
     } catch (error) {
+        logger('REGISTER_STUDENT_ERROR', `Failed to register student: ${req.body.email}`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -74,17 +90,25 @@ exports.loginStudent = async (req, res) => {
 
         const [rows] = await pool.query('SELECT * FROM students WHERE prn_number = ?', [prn_number]);
 
-        if (rows.length === 0) return res.status(401).json({ message: 'Invalid credentials' });
+        if (rows.length === 0) {
+            logger('LOGIN_STUDENT_FAIL', `Invalid PRN: ${prn_number}`);
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
 
         const student = rows[0];
         const isMatch = await bcrypt.compare(password, student.password);
 
-        if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+        if (!isMatch) {
+            logger('LOGIN_STUDENT_FAIL', `Invalid password for PRN: ${prn_number}`);
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
 
         const token = generateToken(student.id, 'student');
 
         // Store last token
         await pool.query('UPDATE students SET last_token = ? WHERE id = ?', [token, student.id]);
+
+        logger('LOGIN_STUDENT', `Student logged in: ${student.username} (${student.email})`, { id: student.id, prn: student.prn_number });
 
         res.json({
             token,
@@ -92,6 +116,7 @@ exports.loginStudent = async (req, res) => {
             message: 'Authenticated successfully'
         });
     } catch (error) {
+        logger('LOGIN_STUDENT_ERROR', `Login error for PRN: ${req.body.prn_number}`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -108,14 +133,20 @@ exports.changePassword = async (req, res) => {
 
         const user = rows[0];
         const isMatch = await bcrypt.compare(oldPassword, user.password);
-        if (!isMatch) return res.status(401).json({ message: 'Incorrect old password' });
+        if (!isMatch) {
+            logger('CHANGE_PASSWORD_FAIL', `Incorrect old password for user ID: ${id} (${role})`);
+            return res.status(401).json({ message: 'Incorrect old password' });
+        }
 
         // Hash and update
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await pool.query(`UPDATE ${table} SET password = ? WHERE id = ?`, [hashedPassword, id]);
 
+        logger('CHANGE_PASSWORD', `Password updated for user ID: ${id} (${role})`);
+
         res.json({ message: 'Password updated successfully' });
     } catch (error) {
+        logger('CHANGE_PASSWORD_ERROR', `Error changing password for user ID: ${req.user.id}`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -137,6 +168,8 @@ exports.adminCreateTeacher = async (req, res) => {
             'INSERT INTO teachers (username, email, password) VALUES (?, ?, ?)',
             [username, email, hashedPassword]
         );
+
+        logger('ADMIN_CREATE_TEACHER', `Admin created teacher: ${username} (${email})`, { id: result.insertId });
 
         res.status(201).json({
             message: 'Teacher created successfully',
@@ -165,6 +198,8 @@ exports.adminCreateStudent = async (req, res) => {
             'INSERT INTO students (username, email, password, prn_number) VALUES (?, ?, ?, ?)',
             [username, email, hashedPassword, prn_number]
         );
+
+        logger('ADMIN_CREATE_STUDENT', `Admin created student: ${username} (${email})`, { id: result.insertId, prn: prn_number });
 
         res.status(201).json({
             message: 'Student created successfully',
@@ -210,6 +245,8 @@ exports.adminCreateBulkStudents = async (req, res) => {
             }
         }
 
+        logger('ADMIN_BULK_STUDENTS', `Bulk student creation: ${results.success.length} success, ${results.failed.length} failed`);
+
         res.status(201).json({
             message: `Created ${results.success.length} students, ${results.failed.length} failed`,
             results
@@ -250,6 +287,8 @@ exports.adminCreateBulkTeachers = async (req, res) => {
                 results.failed.push({ teacher, reason: error.message });
             }
         }
+
+        logger('ADMIN_BULK_TEACHERS', `Bulk teacher creation: ${results.success.length} success, ${results.failed.length} failed`);
 
         res.status(201).json({
             message: `Created ${results.success.length} teachers, ${results.failed.length} failed`,
@@ -299,6 +338,8 @@ exports.deleteUser = async (req, res) => {
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'User not found' });
         }
+
+        logger('ADMIN_DELETE_USER', `Admin deleted ${role}: ID ${id}`);
 
         res.json({ message: `${role.charAt(0).toUpperCase() + role.slice(1)} deleted successfully` });
     } catch (error) {
