@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Settings
 } from 'lucide-react';
+import { getUser, clearAuth } from '../utils/auth';
 
 
 
@@ -25,19 +26,13 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
   const [userName, setUserName] = useState(userType === 'student' ? 'Scholar Name' : 'Instructor Name');
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      try {
-        const user = JSON.parse(userStr);
-        if (user.name) setUserName(user.name);
-      } catch (e) {
-        console.error('Failed to parse user from localStorage');
-      }
-    }
-  }, []);
+    const user = getUser(userType);
+    if (user?.name) setUserName(user.name);
+    else if (user?.username) setUserName(user.username);
+  }, [userType]);
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
+    clearAuth(userType);
     navigate('/login');
   };
 

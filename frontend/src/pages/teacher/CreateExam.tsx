@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getToken } from '../../utils/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     HelpCircle,
@@ -66,7 +67,7 @@ const CreateExam = () => {
     const handlePublish = async () => {
         setIsPublishing(true);
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('teacher');
 
             // Map frontend data to backend format
             const backendData = {

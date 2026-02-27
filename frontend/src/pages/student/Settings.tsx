@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { KeyRound, ShieldCheck, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
+import { getToken } from '../../utils/auth';
 
 const Settings = () => {
     const [oldPassword, setOldPassword] = useState('');
@@ -33,7 +34,7 @@ const Settings = () => {
         setStatus({ type: 'loading', message: 'Updating password...' });
 
         try {
-            const token = localStorage.getItem('token');
+            const token = getToken('student');
             const response = await fetch('http://localhost:5000/api/auth/change-password', {
                 method: 'PUT',
                 headers: {
