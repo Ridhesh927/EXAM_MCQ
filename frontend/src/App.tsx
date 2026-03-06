@@ -12,6 +12,7 @@ import LiveProctoring from './pages/teacher/LiveProctoring';
 import ManageExams from './pages/teacher/ManageExams';
 import ManageStudents from './pages/teacher/ManageStudents';
 import ViewResults from './pages/teacher/ViewResults';
+import EditExam from './pages/teacher/EditExam';
 import Landing from './pages/Landing';
 import { ThemeProvider } from './context/ThemeContext';
 import ThemeToggle from './components/ThemeToggle';
@@ -38,9 +39,11 @@ function App() {
           <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
           <Route path="/teacher/exams" element={<ManageExams />} />
           <Route path="/teacher/create-exam" element={<CreateExam />} />
+          <Route path="/teacher/edit-exam/:id" element={<EditExam />} />
           <Route path="/teacher/proctor" element={<LiveProctoring />} />
           <Route path="/teacher/students" element={<ManageStudents />} />
           <Route path="/teacher/results" element={<ViewResults />} />
+          <Route path="/teacher/settings" element={<Settings userType="teacher" />} />
         </Routes>
       </div>
     </ThemeProvider>

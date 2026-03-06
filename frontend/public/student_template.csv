@@ -1,6 +1,6 @@
-username,email,password,prn_number
-john_doe,john.doe@school.com,Student@123,PRN2024001
-jane_smith,jane.smith@school.com,Student@123,PRN2024002
-robert_johnson,robert.j@school.com,Student@123,PRN2024003
-emily_davis,emily.davis@school.com,Student@123,PRN2024004
-michael_wilson,michael.w@school.com,Student@123,PRN2024005
+Name,Email,PRN,Department,Year
+John Doe,john.doe@school.com,PRN2024001,Computer Science,First Year
+Jane Smith,jane.smith@school.com,PRN2024002,Information Technology,Second Year
+Robert Johnson,robert.j@school.com,PRN2024003,Mechanical Engineering,Third Year
+Emily Davis,emily.davis@school.com,PRN2024004,Civil Engineering,Fourth Year
+Michael Wilson,michael.w@school.com,PRN2024005,Electronics & Telecom,First Year

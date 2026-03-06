@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { getToken } from '../../utils/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -15,14 +15,17 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
-const CreateExam = () => {
+const EditExam = () => {
+    const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [isPublishing, setIsPublishing] = useState(false);
     const [publishSuccess, setPublishSuccess] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+
     const [examData, setExamData] = useState({
         title: '',
         subject: '',
@@ -30,8 +33,46 @@ const CreateExam = () => {
         passingMarks: 40,
         target_department: '',
         target_year: '',
-        questions: [] as any[]
+        questions: [] as any[],
+        status: 'Draft'
     });
+
+    useEffect(() => {
+        const fetchExamDetails = async () => {
+            try {
+                const token = getToken('teacher');
+                const response = await axios.get(`/api/exams/teacher/details/${id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                const data = response.data;
+                setExamData({
+                    title: data.title || '',
+                    subject: data.subject || '',
+                    duration: data.duration || 60,
+                    passingMarks: data.passing_marks || 40,
+                    target_department: data.target_department || '',
+                    target_year: data.target_year || '',
+                    status: data.status || 'Draft',
+                    questions: (data.questions || []).map((q: any) => ({
+                        text: q.question,
+                        type: 'MCQ',
+                        options: q.options || ['', '', '', ''],
+                        correct: q.correct || 0,
+                        marks: q.marks || 5,
+                        difficulty: q.difficulty || 'medium'
+                    }))
+                });
+            } catch (err) {
+                console.error('Failed to fetch exam:', err);
+                alert('Could not load exam details. You might not have permission.');
+                navigate('/teacher/exams');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchExamDetails();
+    }, [id, navigate]);
 
     const nextStep = () => setStep(s => s + 1);
     const prevStep = () => setStep(s => s - 1);
@@ -69,7 +110,6 @@ const CreateExam = () => {
         try {
             const token = getToken('teacher');
 
-            // Map frontend data to backend format
             const backendData = {
                 title: examData.title,
                 subject: examData.subject,
@@ -89,16 +129,17 @@ const CreateExam = () => {
                 status: status
             };
 
-            await axios.post('/api/exams/create', backendData, {
+            await axios.put(`/api/exams/teacher/edit/${id}`, backendData, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+
             setPublishSuccess(true);
             setTimeout(() => {
                 navigate('/teacher/exams');
-            }, 2000);
+            }, 1000);
         } catch (err) {
-            console.error('Failed to publish exam:', err);
-            alert('Failed to publish exam. Please try again.');
+            console.error('Failed to update exam:', err);
+            alert('Failed to update exam. Please try again.');
         } finally {
             setIsPublishing(false);
         }
@@ -131,13 +172,21 @@ const CreateExam = () => {
         reader.readAsBinaryString(file);
     };
 
+    if (isLoading) {
+        return (
+            <DashboardLayout userType="teacher">
+                <div style={{ padding: '3rem', textAlign: 'center' }}>Loading Exam Details...</div>
+            </DashboardLayout>
+        );
+    }
+
     return (
         <DashboardLayout userType="teacher">
             <div className="create-exam-page">
                 <header className="page-header">
                     <div>
-                        <h1>Drafting New Assessment</h1>
-                        <p className="text-secondary">Structure your inquiry with precision and clarity.</p>
+                        <h1>Editing Assessment</h1>
+                        <p className="text-secondary">Modify your existing inquiry with precision and clarity.</p>
                     </div>
                     <div className="step-indicator">
                         {[1, 2, 3].map(i => (
@@ -317,7 +366,7 @@ const CreateExam = () => {
                             >
                                 <CheckCircle size={64} className="text-success" />
                                 <h2>Validation Complete</h2>
-                                <p className="text-secondary text-center">Your assessment is structured and ready for enrollment. Perform a final review before publication.</p>
+                                <p className="text-secondary text-center">Your assessment is structured and ready for enrollment. Perform a final review before saving.</p>
 
                                 <div className="review-summary neo-card">
                                     <div className="r-item"><span>Title</span> <strong>{examData.title || 'Untitled'}</strong></div>
@@ -325,7 +374,7 @@ const CreateExam = () => {
                                     <div className="r-item"><span>Questions</span> <strong>{examData.questions.length}</strong></div>
                                     <div className="r-item"><span>Target Dept.</span> <strong>{examData.target_department || 'All Departments'}</strong></div>
                                     <div className="r-item"><span>Target Year</span> <strong>{examData.target_year || 'All Years'}</strong></div>
-                                    <div className="r-item"><span>Security</span> <strong className="text-success">AI Proctoring Enabled</strong></div>
+                                    <div className="r-item"><span>Status</span> <strong className="text-success">{examData.status}</strong></div>
                                 </div>
                             </motion.div>
                         )}
@@ -357,11 +406,11 @@ const CreateExam = () => {
                             className={step === 3 ? 'nav-btn nav-btn-publish' : 'nav-btn nav-btn-continue'}
                         >
                             {publishSuccess ? (
-                                <><CheckCircle size={18} /> {status === 'Draft' ? 'Saved!' : 'Published!'}</>
+                                <><CheckCircle size={18} /> Saved!</>
                             ) : isPublishing ? (
                                 <><Rocket size={18} className="publishing-icon" /> Processing...</>
                             ) : (
-                                <>{step === 3 ? <><Rocket size={18} /> Publish Assessment</> : <>Continue <ChevronRight size={18} /></>}</>
+                                <>{step === 3 ? <><Rocket size={18} /> Update & Publish</> : <>Continue <ChevronRight size={18} /></>}</>
                             )}
                         </button>
                     </footer>
@@ -457,7 +506,6 @@ const CreateExam = () => {
             z-index: 1;
           }
           
-          /* Back Button */
           .nav-btn-back {
             background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
             border: 1px solid rgba(99, 102, 241, 0.3);
@@ -485,7 +533,6 @@ const CreateExam = () => {
             border-color: rgba(255, 255, 255, 0.05);
           }
           
-          /* Continue Button */
           .nav-btn-continue {
             background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
             border: 1px solid rgba(99, 102, 241, 0.3);
@@ -506,7 +553,6 @@ const CreateExam = () => {
             transform: translateX(3px);
           }
           
-          /* Publish Button */
           .nav-btn-publish {
             background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
             border: 1px solid rgba(249, 115, 22, 0.3);
@@ -546,4 +592,4 @@ const CreateExam = () => {
     );
 };
 
-export default CreateExam;
+export default EditExam;

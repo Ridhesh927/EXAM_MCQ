@@ -1,17 +1,12 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import Galaxy from '../../components/Galaxy/Galaxy';
+
 
 
 const Register = () => {
   return (
     <div className="auth-page">
-      <Galaxy
-        density={2.5}
-        speed={0.3}
-        hueShift={220}
-        glowIntensity={0.5}
-      />
+
 
       <div className="auth-form-container">
         <motion.div
@@ -20,8 +15,7 @@ const Register = () => {
           transition={{ duration: 0.8 }}
           className="auth-title"
         >
-          <h1>DES Pune University</h1>
-          <p>Online Exam Portal</p>
+          <h1>Online Exam Portal</h1>
         </motion.div>
 
         <div className="auth-card-wrapper">

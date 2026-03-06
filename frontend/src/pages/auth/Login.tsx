@@ -2,11 +2,10 @@ import { useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import Galaxy from '../../components/Galaxy/Galaxy';
+
 import { setAuth } from '../../utils/auth';
 
-const STUDENT_HUE = 160;
-const TEACHER_HUE = 250;
+
 
 const Login = () => {
   const [searchParams] = useSearchParams();
@@ -79,13 +78,7 @@ const Login = () => {
 
   return (
     <div className="auth-page">
-      <Galaxy
-        density={2}
-        speed={0.4}
-        hueShift={isStudent ? STUDENT_HUE : TEACHER_HUE}
-        glowIntensity={0.6}
-        mouseInteraction={true}
-      />
+
 
       <div className="auth-form-container">
         <motion.div
@@ -94,12 +87,10 @@ const Login = () => {
           transition={{ duration: 0.8 }}
           className="auth-title"
         >
-          <h1>DES Pune University</h1>
-          <p>Online Exam Portal</p>
+          <h1>Online Exam Portal</h1>
         </motion.div>
 
         <div className="auth-card-wrapper">
-          <div className="auth-card-border-anim"></div>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -215,28 +206,8 @@ const Login = () => {
         }
 
         .auth-card-wrapper {
-          position: relative;
-          padding: 6px;
-          border-radius: var(--radius-md);
-          overflow: hidden;
           width: 100%;
           max-width: 480px;
-        }
-
-        .auth-card-border-anim {
-          position: absolute;
-          top: -50%;
-          left: -50%;
-          width: 200%;
-          height: 200%;
-          background: conic-gradient(transparent, #f97316, transparent 40%);
-          animation: rotate 4s linear infinite;
-          opacity: 1;
-        }
-
-        @keyframes rotate {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
         }
 
         .auth-card {

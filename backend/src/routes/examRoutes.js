@@ -12,6 +12,9 @@ router.get('/teacher/my-exams', authMiddleware, roleMiddleware(['teacher']), exa
 router.delete('/teacher/delete/:id', authMiddleware, roleMiddleware(['teacher']), examController.deleteExam);
 router.get('/teacher/stats', authMiddleware, roleMiddleware(['teacher']), examController.getDashboardStats);
 router.get('/teacher/results', authMiddleware, roleMiddleware(['teacher']), examController.getTeacherResults);
+router.get('/teacher/details/:id', authMiddleware, roleMiddleware(['teacher']), examController.getTeacherExamDetails);
+router.put('/teacher/edit/:id', authMiddleware, roleMiddleware(['teacher']), examController.updateExam);
+router.put('/teacher/schedule/:id', authMiddleware, roleMiddleware(['teacher']), examController.scheduleExam);
 router.get('/teacher/active-sessions/:examId', authMiddleware, roleMiddleware(['teacher']), examController.getActiveSessions);
 
 // Student routes

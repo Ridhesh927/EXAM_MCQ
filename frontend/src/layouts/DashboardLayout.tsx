@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
   BookOpen,
@@ -24,6 +25,8 @@ interface DashboardLayoutProps {
 const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
   const navigate = useNavigate();
   const [userName, setUserName] = useState(userType === 'student' ? 'Scholar Name' : 'Instructor Name');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   useEffect(() => {
     const user = getUser(userType);
@@ -85,17 +88,69 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
           </div>
           <div className="header-actions">
             {userType === 'teacher' && (
-              <button className="icon-btn">
-                <Bell size={20} />
-                <span className="notification-dot"></span>
-              </button>
-            )}
-            <div className="user-profile-brief">
-              <div className="avatar-placeholder">{userName.charAt(0).toUpperCase()}</div>
-              <div className="profile-info">
-                <p className="profile-name">{userName}</p>
-                <p className="profile-role">{userType === 'student' ? 'Student' : 'Teacher'}</p>
+              <div className="dropdown-container">
+                <button
+                  className={`icon-btn ${showNotifications ? 'active' : ''}`}
+                  onClick={() => { setShowNotifications(!showNotifications); setShowProfileMenu(false); }}
+                >
+                  <Bell size={20} />
+                  <span className="notification-dot"></span>
+                </button>
+                <AnimatePresence>
+                  {showNotifications && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="header-dropdown notifications-dropdown"
+                    >
+                      <div className="dropdown-header">
+                        <h4>Notifications</h4>
+                      </div>
+                      <div className="dropdown-body empty-state">
+                        <Bell size={32} className="text-muted" style={{ margin: '0 auto 10px' }} />
+                        <p>You're all caught up!</p>
+                        <span className="text-muted" style={{ fontSize: '0.75rem' }}>No new alerts or warnings.</span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
+            )}
+
+            <div className="dropdown-container">
+              <div
+                className="user-profile-brief clickable"
+                onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifications(false); }}
+              >
+                <div className="avatar-placeholder">{userName.charAt(0).toUpperCase()}</div>
+                <div className="profile-info">
+                  <p className="profile-name">{userName}</p>
+                  <p className="profile-role">{userType === 'student' ? 'Student' : 'Teacher'}</p>
+                </div>
+              </div>
+              <AnimatePresence>
+                {showProfileMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="header-dropdown profile-dropdown"
+                  >
+                    <div className="dropdown-header profile-dropdown-header">
+                      <p className="profile-name">{userName}</p>
+                      <p className="profile-role">{userType === 'student' ? 'Student Account' : 'Instructor Account'}</p>
+                    </div>
+                    <button className="dropdown-item" onClick={() => navigate(`/${userType}/settings`)}>
+                      <Settings size={16} /> Account Settings
+                    </button>
+                    <div className="dropdown-divider"></div>
+                    <button className="dropdown-item danger" onClick={handleLogout}>
+                      <LogOut size={16} /> Sign Out Session
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </header>
@@ -267,6 +322,123 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
         .profile-name { font-weight: 600; font-size: 0.875rem; color: var(--text-primary); }
         .profile-role { color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        .dropdown-container {
+            position: relative;
+        }
+
+        .icon-btn.active {
+            color: var(--accent);
+            background: var(--surface-high);
+        }
+
+        .user-profile-brief.clickable {
+            cursor: pointer;
+            padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+            border-radius: var(--radius-sm);
+            transition: background 0.2s ease;
+        }
+
+        .user-profile-brief.clickable:hover {
+            background: var(--surface);
+        }
+
+        .header-dropdown {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            background: var(--surface-low);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+            z-index: 100;
+            overflow: hidden;
+            border-top: 2px solid var(--accent);
+        }
+
+        .notifications-dropdown {
+            width: 320px;
+        }
+
+        .profile-dropdown {
+            width: 240px;
+        }
+
+        .dropdown-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .dropdown-header h4 {
+            margin: 0;
+            font-size: 0.9375rem;
+            color: var(--text-primary);
+        }
+
+        .profile-dropdown-header {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            padding: 1.25rem 1rem;
+        }
+
+        .dropdown-body {
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .dropdown-body.empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 1rem;
+            text-align: center;
+        }
+
+        .dropdown-body.empty-state p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .dropdown-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.875rem 1rem;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s ease;
+        }
+
+        .dropdown-item:hover {
+            background: var(--surface);
+            color: var(--text-primary);
+            padding-left: 1.5rem;
+        }
+
+        .dropdown-item.danger {
+            color: var(--error);
+        }
+
+        .dropdown-item.danger:hover {
+            background: rgba(239, 68, 68, 0.05);
+            color: var(--error);
+        }
+
+        .dropdown-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 0;
+        }
 
         .page-body {
           padding: 2.5rem;

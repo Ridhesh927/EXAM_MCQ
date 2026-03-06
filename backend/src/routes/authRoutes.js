@@ -23,5 +23,6 @@ router.post('/admin/bulk-teachers', authMiddleware, roleMiddleware(['teacher']),
 router.get('/admin/teachers', authMiddleware, roleMiddleware(['teacher']), authController.getAllTeachers);
 router.get('/admin/students', authMiddleware, roleMiddleware(['teacher']), authController.getAllStudents);
 router.delete('/admin/user/:role/:id', authMiddleware, roleMiddleware(['teacher']), authController.deleteUser);
+router.put('/admin/user/:role/:id/toggle-block', authMiddleware, roleMiddleware(['teacher']), authController.toggleBlockUser);
 
 module.exports = router;
