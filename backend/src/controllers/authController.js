@@ -96,6 +96,12 @@ exports.loginStudent = async (req, res) => {
         }
 
         const student = rows[0];
+
+        if (student.is_blocked) {
+            logger('LOGIN_STUDENT_FAIL', `Blocked student attempted login: PRN ${prn_number}`);
+            return res.status(403).json({ message: 'Your account has been suspended. Please contact your instructor.' });
+        }
+
         const isMatch = await bcrypt.compare(password, student.password);
 
         if (!isMatch) {
@@ -315,7 +321,7 @@ exports.getAllTeachers = async (req, res) => {
 exports.getAllStudents = async (req, res) => {
     try {
         const [students] = await pool.query(
-            'SELECT id, username, email, prn_number, department, year, created_at FROM students ORDER BY created_at DESC'
+            'SELECT id, username, email, prn_number, department, year, is_blocked, created_at FROM students ORDER BY created_at DESC'
         );
         res.json({ students });
     } catch (error) {
@@ -342,6 +348,29 @@ exports.deleteUser = async (req, res) => {
         logger('ADMIN_DELETE_USER', `Admin deleted ${role}: ID ${id}`);
 
         res.json({ message: `${role.charAt(0).toUpperCase() + role.slice(1)} deleted successfully` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Admin: Toggle Block User
+exports.toggleBlockUser = async (req, res) => {
+    try {
+        const { role, id } = req.params;
+
+        if (role !== 'student') {
+            return res.status(400).json({ message: 'Only students can be blocked currently' });
+        }
+
+        const [rows] = await pool.query(`SELECT is_blocked FROM students WHERE id = ?`, [id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Student not found' });
+
+        const newStatus = !rows[0].is_blocked;
+        await pool.query(`UPDATE students SET is_blocked = ? WHERE id = ?`, [newStatus, id]);
+
+        logger('ADMIN_TOGGLE_BLOCK', `Admin ${newStatus ? 'blocked' : 'unblocked'} student ID ${id}`);
+
+        res.json({ message: `Student ${newStatus ? 'blocked' : 'unblocked'} successfully`, is_blocked: newStatus });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

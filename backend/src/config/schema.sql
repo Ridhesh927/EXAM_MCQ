@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS exams (
     status ENUM(
         'Draft',
         'Published',
+        'Scheduled',
         'Completed'
     ) DEFAULT 'Published',
     passing_marks INT NOT NULL,

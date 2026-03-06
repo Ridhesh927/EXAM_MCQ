@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 // Create Exam
 exports.createExam = async (req, res) => {
     try {
-        const { title, subject, duration, total_marks, passing_marks, instructions, questions, target_department, target_year } = req.body;
+        const { title, subject, duration, total_marks, passing_marks, instructions, questions, target_department, target_year, status, scheduled_start } = req.body;
         const teacher_id = req.user.id;
 
         // Start transaction
@@ -14,8 +14,8 @@ exports.createExam = async (req, res) => {
 
         try {
             const [examResult] = await connection.query(
-                'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department, target_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department || null, target_year || null]
+                'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department, target_year, status, scheduled_start) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department || null, target_year || null, status || 'Published', scheduled_start || null]
             );
 
             const examId = examResult.insertId;
@@ -77,6 +77,113 @@ exports.deleteExam = async (req, res) => {
     }
 };
 
+// Get Exam Details (For Teacher Edit Page - no restrictions)
+exports.getTeacherExamDetails = async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM exams WHERE id = ? AND teacher_id = ?', [req.params.id, req.user.id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Exam not found or unauthorized' });
+
+        const exam = rows[0];
+        const [questions] = await pool.query('SELECT id, question, options, correct_answer as correct, marks, difficulty FROM exam_questions WHERE exam_id = ?', [req.params.id]);
+
+        // Parse options back to arrays for frontend
+        const parsedQuestions = questions.map(q => ({
+            ...q,
+            options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options
+        }));
+
+        res.json({ ...exam, questions: parsedQuestions });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Update Exam
+exports.updateExam = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, subject, duration, passing_marks, target_department, target_year, status, questions } = req.body;
+        const teacher_id = req.user.id;
+
+        // Verify ownership
+        const [authCheck] = await pool.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [id, teacher_id]);
+        if (authCheck.length === 0) return res.status(403).json({ message: 'Unauthorized or exam not found' });
+
+        const connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        try {
+            await connection.query(
+                'UPDATE exams SET title=?, subject=?, duration=?, total_marks=?, passing_marks=?, target_department=?, target_year=?, status=? WHERE id=?',
+                [title, subject, duration, questions.length * 5, passing_marks, target_department || null, target_year || null, status || 'Draft', id]
+            );
+
+            // For simplicity: clear student_responses first to avoid foreign key errors, then delete old questions and insert new ones
+            await connection.query(
+                'DELETE FROM student_responses WHERE question_id IN (SELECT id FROM exam_questions WHERE exam_id = ?)',
+                [id]
+            );
+
+            await connection.query('DELETE FROM exam_questions WHERE exam_id = ?', [id]);
+
+            if (questions && questions.length > 0) {
+                const questionValues = questions.map(q => {
+                    const questionText = q.question || q.text;
+                    const optionsString = typeof q.options === 'string' ? q.options : JSON.stringify(q.options);
+                    const correctAnswer = q.correct_answer !== undefined ? q.correct_answer : (q.correct !== undefined ? q.correct : 0);
+                    const marks = q.marks !== undefined ? q.marks : 5;
+                    const difficulty = q.difficulty || 'medium';
+                    return [id, questionText, optionsString, correctAnswer, marks, difficulty];
+                });
+                await connection.query(
+                    'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty) VALUES ?',
+                    [questionValues]
+                );
+            }
+
+            await connection.commit();
+            logger('UPDATE_EXAM', `Teacher ID ${teacher_id} updated exam: ${title}`, { examId: id });
+            res.json({ message: 'Exam updated successfully' });
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        logger('UPDATE_EXAM_ERROR', `Error updating exam`, { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Schedule Exam
+exports.scheduleExam = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { scheduled_start } = req.body;
+
+        let status = 'Published';
+        if (scheduled_start) {
+            const start = new Date(scheduled_start);
+            if (start > new Date()) {
+                status = 'Scheduled';
+            }
+        }
+
+        const [result] = await pool.query(
+            'UPDATE exams SET status = ?, scheduled_start = ? WHERE id = ? AND teacher_id = ?',
+            [status, scheduled_start || null, id, req.user.id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Exam not found or you are not authorized' });
+        }
+        res.json({ message: 'Exam scheduled successfully', status, scheduled_start });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 // Get Available Exams (for Student - filtered by their department and year)
 exports.getAvailableExams = async (req, res) => {
     try {
@@ -87,17 +194,27 @@ exports.getAvailableExams = async (req, res) => {
         const student = studentRows[0] || {};
 
         const [rows] = await pool.query(
-            `SELECT e.id, e.title, e.subject, e.duration, e.total_marks, e.passing_marks, e.instructions, e.status,
+            `SELECT e.id, e.title, e.subject, e.duration, e.total_marks, e.passing_marks, e.instructions, e.status, e.scheduled_start,
              e.target_department, e.target_year,
              (SELECT COUNT(*) FROM exam_questions WHERE exam_id = e.id) as question_count
              FROM exams e
-             WHERE e.status = 'Published'
+             WHERE e.status IN ('Published', 'Scheduled')
              AND (e.target_department IS NULL OR e.target_department = ?)
              AND (e.target_year IS NULL OR e.target_year = ?)
              ORDER BY e.created_at DESC`,
             [student.department || null, student.year || null]
         );
-        res.json({ exams: rows });
+
+        // Filter out scheduled exams that haven't started yet
+        const availableExams = rows.filter(exam => {
+            if (exam.status === 'Published') return true;
+            if (exam.status === 'Scheduled' && exam.scheduled_start) {
+                return new Date(exam.scheduled_start) <= new Date();
+            }
+            return false;
+        });
+
+        res.json({ exams: availableExams });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -113,11 +230,11 @@ exports.getExamDetails = async (req, res) => {
         const exam = rows[0];
 
         // Security Checks
-        if (exam.status !== 'Published') {
-            return res.status(403).json({ message: 'Exam is not yet published' });
+        if (exam.status !== 'Published' && exam.status !== 'Scheduled') {
+            return res.status(403).json({ message: 'Exam is not available' });
         }
 
-        if (exam.scheduled_start) {
+        if (exam.status === 'Scheduled' && exam.scheduled_start) {
             const now = new Date();
             const start = new Date(exam.scheduled_start);
             if (now < start) {

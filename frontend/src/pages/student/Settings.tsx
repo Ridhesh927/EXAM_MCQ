@@ -4,7 +4,7 @@ import { KeyRound, ShieldCheck, AlertCircle, CheckCircle2, Eye, EyeOff } from 'l
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { getToken } from '../../utils/auth';
 
-const Settings = () => {
+const Settings = ({ userType = 'student' }: { userType?: 'student' | 'teacher' }) => {
     const [oldPassword, setOldPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -34,7 +34,7 @@ const Settings = () => {
         setStatus({ type: 'loading', message: 'Updating password...' });
 
         try {
-            const token = getToken('student');
+            const token = getToken(userType);
             const response = await fetch('http://localhost:5000/api/auth/change-password', {
                 method: 'PUT',
                 headers: {
@@ -60,7 +60,7 @@ const Settings = () => {
     };
 
     return (
-        <DashboardLayout userType="student">
+        <DashboardLayout userType={userType}>
             <div className="settings-container">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}

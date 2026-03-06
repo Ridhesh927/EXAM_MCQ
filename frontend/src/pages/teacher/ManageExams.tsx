@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
-import { getToken } from '../../utils/auth';
+import { apiFetch } from '../../utils/api';
 
 const ManageExams = () => {
     const navigate = useNavigate();
@@ -25,6 +25,9 @@ const ManageExams = () => {
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [examToDelete, setExamToDelete] = useState<string | null>(null);
+    const [showScheduleModal, setShowScheduleModal] = useState(false);
+    const [examToSchedule, setExamToSchedule] = useState<string | null>(null);
+    const [scheduleDate, setScheduleDate] = useState('');
 
     useEffect(() => {
         fetchExams();
@@ -32,10 +35,7 @@ const ManageExams = () => {
 
     const fetchExams = async () => {
         try {
-            const token = getToken('teacher');
-            const response = await fetch('http://localhost:5000/api/exams/teacher/my-exams', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await apiFetch('/api/exams/teacher/my-exams');
             const data = await response.json();
             if (Array.isArray(data)) {
                 setExams(data);
@@ -50,7 +50,14 @@ const ManageExams = () => {
     const filteredExams = exams.filter(exam => {
         const matchesSearch = exam.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
             exam.subject.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesStatus = statusFilter === 'All' || exam.status === statusFilter;
+
+        const isScheduledActive = exam.status === 'Scheduled' && exam.scheduled_start && new Date(exam.scheduled_start) <= new Date();
+        const isScheduledFuture = exam.status === 'Scheduled' && (!exam.scheduled_start || new Date(exam.scheduled_start) > new Date());
+
+        const matchesStatus = statusFilter === 'All' ||
+            (statusFilter === 'Active' && (exam.status === 'Published' || isScheduledActive)) ||
+            (statusFilter === 'Draft' && exam.status === 'Draft') ||
+            (statusFilter === 'Scheduled' && isScheduledFuture);
         return matchesSearch && matchesStatus;
     });
 
@@ -63,11 +70,7 @@ const ManageExams = () => {
     const confirmDelete = async () => {
         if (!examToDelete) return;
         try {
-            const token = getToken('teacher');
-            const response = await fetch(`http://localhost:5000/api/exams/teacher/delete/${examToDelete}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await apiFetch(`/api/exams/teacher/delete/${examToDelete}`, { method: 'DELETE' });
             if (response.ok) {
                 setExams(prev => prev.filter(e => e.id !== examToDelete));
             } else {
@@ -82,9 +85,31 @@ const ManageExams = () => {
     };
 
     const handleSchedule = (examId: string) => {
-        console.log('Scheduling exam:', examId);
-        // TODO: Open schedule modal
+        setExamToSchedule(examId);
+        setShowScheduleModal(true);
         setActiveMenu(null);
+    };
+
+    const confirmSchedule = async () => {
+        if (!examToSchedule || !scheduleDate) return;
+        try {
+            const response = await apiFetch(`/api/exams/teacher/schedule/${examToSchedule}`, {
+                method: 'PUT',
+                body: JSON.stringify({ scheduled_start: scheduleDate })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setExams(prev => prev.map(e => e.id === examToSchedule ? { ...e, status: data.status, scheduled_start: data.scheduled_start } : e));
+            } else {
+                alert('Failed to schedule exam.');
+            }
+        } catch (err) {
+            alert('Error scheduling exam.');
+        } finally {
+            setShowScheduleModal(false);
+            setExamToSchedule(null);
+            setScheduleDate('');
+        }
     };
 
     const handleEdit = (examId: string) => {
@@ -173,9 +198,16 @@ const ManageExams = () => {
                                 </div>
 
                                 <div className="item-status">
-                                    <span className={`status-pill ${exam.status ? exam.status.toLowerCase() : 'draft'}`}>
-                                        {exam.status || 'Draft'}
-                                    </span>
+                                    {(() => {
+                                        const isActive = exam.status === 'Published' || (exam.status === 'Scheduled' && exam.scheduled_start && new Date(exam.scheduled_start) <= new Date());
+                                        const badgeClass = isActive ? 'published' : (exam.status ? exam.status.toLowerCase() : 'draft');
+                                        const displayText = isActive ? 'Active' : (exam.status || 'Draft');
+                                        return (
+                                            <span className={`status-pill ${badgeClass}`}>
+                                                {displayText}
+                                            </span>
+                                        );
+                                    })()}
                                     <div className="action-menu-wrapper">
                                         <button
                                             className="icon-btn"
@@ -199,9 +231,8 @@ const ManageExams = () => {
                                                     <button
                                                         onClick={() => handleSchedule(exam.id)}
                                                         className="dropdown-item"
-                                                        disabled={exam.status === 'Scheduled'}
                                                     >
-                                                        <Clock size={16} /> {exam.status === 'Scheduled' ? 'Reschedule' : 'Schedule'}
+                                                        <Clock size={16} /> {(exam.status === 'Scheduled' && (!exam.scheduled_start || new Date(exam.scheduled_start) > new Date())) ? 'Reschedule' : 'Schedule'}
                                                     </button>
                                                     <div className="dropdown-divider"></div>
                                                     <button onClick={() => handleDelete(exam.id)} className="dropdown-item danger">
@@ -252,6 +283,55 @@ const ManageExams = () => {
                     )}
                 </AnimatePresence>
 
+                {/* Schedule Modal */}
+                <AnimatePresence>
+                    {showScheduleModal && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="modal-overlay"
+                            onClick={() => setShowScheduleModal(false)}
+                        >
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="modal-content"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="modal-header">
+                                    <Clock size={48} className="text-accent" />
+                                    <h2>Schedule Exam</h2>
+                                    <p>Select when this exam should become available to students.</p>
+                                </div>
+
+                                <div style={{ marginBottom: '2rem' }}>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                                        Start Date & Time
+                                    </label>
+                                    <input
+                                        type="datetime-local"
+                                        className="neo-input"
+                                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-primary)' }}
+                                        value={scheduleDate}
+                                        onChange={(e) => setScheduleDate(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="modal-actions">
+                                    <button onClick={() => setShowScheduleModal(false)} className="modal-btn modal-btn-cancel">
+                                        Cancel
+                                    </button>
+                                    <button onClick={confirmSchedule} className="modal-btn" style={{ background: 'var(--accent)', color: 'white', border: 'none' }}>
+                                        <Clock size={18} /> Confirm Schedule
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 <style>{`
           .manage-exams-page { display: flex; flex-direction: column; gap: 2.5rem; }
           .page-header { display: flex; justify-content: space-between; align-items: center; }
@@ -275,7 +355,7 @@ const ManageExams = () => {
           
           .item-status { display: flex; align-items: center; gap: 2rem; }
           .status-pill { padding: 0.4rem 1rem; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-          .status-pill.active { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+          .status-pill.active, .status-pill.published { background: rgba(16, 185, 129, 0.1); color: #10b981; }
           .status-pill.draft { background: rgba(251, 191, 36, 0.1); color: #fbbf24; }
           .status-pill.scheduled { background: rgba(96, 165, 250, 0.1); color: #60a5fa; }
           

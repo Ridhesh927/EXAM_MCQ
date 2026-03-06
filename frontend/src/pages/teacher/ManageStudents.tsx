@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getToken } from '../../utils/auth';
+import { apiFetch } from '../../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     UserPlus,
@@ -11,7 +11,8 @@ import {
     ShieldAlert,
     FileSpreadsheet,
     X,
-    Loader2
+    Loader2,
+    Trash2
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import * as XLSX from 'xlsx';
@@ -21,9 +22,11 @@ const ManageStudents = () => {
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('All');
     const [showAddModal, setShowAddModal] = useState(false);
-    const [newStudent, setNewStudent] = useState({ username: '', email: '', prn_number: '', password: '', department: '', year: '' });
+    const [newStudent, setNewStudent] = useState({ username: '', email: '', prn_number: '', password: 'student@123', department: '', year: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [importSummary, setImportSummary] = useState<{ success: any[], failed: any[] } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -32,20 +35,15 @@ const ManageStudents = () => {
 
     const fetchStudents = async () => {
         try {
-            const token = getToken('teacher');
-            const response = await fetch('http://localhost:5000/api/auth/admin/students', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const response = await apiFetch('/api/auth/admin/students');
             const data = await response.json();
-            console.log('[Students API] Status:', response.status, 'Data:', data);
             if (!response.ok) {
                 setFetchError(data.message || `Error ${response.status}`);
             } else if (data.students) {
                 setStudents(data.students);
             }
-        } catch (error) {
-            console.error('Failed to fetch students', error);
-            setFetchError('Failed to connect to server.');
+        } catch (error: any) {
+            setFetchError(error.message || 'Failed to connect to server.');
         } finally {
             setLoading(false);
         }
@@ -55,25 +53,20 @@ const ManageStudents = () => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const token = getToken('teacher');
-            const response = await fetch('http://localhost:5000/api/auth/admin/create-student', {
+            const response = await apiFetch('/api/auth/admin/create-student', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
                 body: JSON.stringify(newStudent)
             });
-
             if (response.ok) {
                 setShowAddModal(false);
-                setNewStudent({ username: '', email: '', prn_number: '', password: '', department: '', year: '' });
+                setNewStudent({ username: '', email: '', prn_number: '', password: 'student@123', department: '', year: '' });
                 fetchStudents();
             } else {
-                alert('Failed to create student');
+                const data = await response.json();
+                alert(data.message || 'Failed to create student');
             }
-        } catch (error) {
-            console.error('Error creating student', error);
+        } catch (error: any) {
+            alert(error.message || 'Error creating student');
         } finally {
             setIsSubmitting(false);
         }
@@ -92,43 +85,94 @@ const ManageStudents = () => {
                 const ws = wb.Sheets[wsname];
                 const data = XLSX.utils.sheet_to_json(ws);
 
-                // Map data to expected format (assuming columns: Name, Email, PRN, Password)
+                if (data.length === 0) {
+                    alert('The uploaded file is empty.');
+                    return;
+                }
+
+                // Check for required headers in the first row
+                const firstRow: any = data[0];
+                const hasName = 'Name' in firstRow || 'name' in firstRow || 'Username' in firstRow || 'username' in firstRow;
+                const hasEmail = 'Email' in firstRow || 'email' in firstRow;
+                const hasPRN = 'PRN' in firstRow || 'prn' in firstRow || 'prn_number' in firstRow;
+
+                if (!hasName || !hasEmail || !hasPRN) {
+                    alert('Invalid CSV format. Please ensure the file has at least Name, Email, and PRN columns.');
+                    return;
+                }
+
+                // Map data to expected format
                 const formattedStudents = data.map((row: any) => ({
-                    username: row.Name || row.name || row.Username,
+                    username: row.Name || row.name || row.Username || row.username,
                     email: row.Email || row.email,
                     prn_number: row.PRN || row.prn || row.prn_number,
-                    password: row.Password || row.password || 'Student@123' // Default password if missing
+                    password: row.Password || row.password || 'student@123', // Default password if missing
+                    department: row.Department || row.department || '',
+                    year: row.Year || row.year || ''
                 }));
 
-                const token = getToken('teacher');
-                const response = await fetch('http://localhost:5000/api/auth/admin/bulk-students', {
+                const response = await apiFetch('/api/auth/admin/bulk-students', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`
-                    },
                     body: JSON.stringify({ students: formattedStudents })
                 });
 
+                const resultData = await response.json();
+
                 if (response.ok) {
-                    alert(`Successfully imported ${formattedStudents.length} students`);
+                    setImportSummary(resultData.results);
                     fetchStudents();
                 } else {
-                    alert('Failed to import students');
+                    alert(resultData.message || 'Failed to import students');
                 }
             } catch (error) {
                 console.error('Error parsing file', error);
                 alert('Error parsing file');
             }
+
+            // Reset the file input so the same file can be uploaded again if needed
+            if (fileInputRef.current) fileInputRef.current.value = '';
         };
         reader.readAsBinaryString(file);
     };
 
-    const filteredStudents = students.filter(student =>
-        student.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        student.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        student.prn_number.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const handleToggleBlock = async (studentId: string, currentStatus: boolean) => {
+        try {
+            const response = await apiFetch(`/api/auth/admin/user/student/${studentId}/toggle-block`, { method: 'PUT' });
+            if (response.ok) {
+                setStudents(prev => prev.map(s => s.id === studentId ? { ...s, is_blocked: !currentStatus } : s));
+            } else {
+                const data = await response.json();
+                alert(data.message || 'Failed to update student status');
+            }
+        } catch (error: any) {
+            alert(error.message || 'Error updating student status');
+        }
+    };
+
+    const handleDeleteStudent = async (studentId: string) => {
+        if (!confirm('Are you sure you want to delete this student?')) return;
+        try {
+            const response = await apiFetch(`/api/auth/admin/user/student/${studentId}`, { method: 'DELETE' });
+            if (response.ok) {
+                setStudents(prev => prev.filter(s => s.id !== studentId));
+            } else {
+                const data = await response.json();
+                alert(data.message || 'Failed to delete student');
+            }
+        } catch (error: any) {
+            alert(error.message || 'Error deleting student');
+        }
+    };
+
+    const filteredStudents = students.filter(student => {
+        const matchesSearch = student.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            student.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            student.prn_number.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesStatus = statusFilter === 'All' ||
+            (statusFilter === 'Active' && !student.is_blocked) ||
+            (statusFilter === 'Blocked' && student.is_blocked);
+        return matchesSearch && matchesStatus;
+    });
 
     return (
         <DashboardLayout userType="teacher">
@@ -176,9 +220,9 @@ const ManageStudents = () => {
                         />
                     </div>
                     <div className="filter-group">
-                        <button className="filter-tab active">All Students</button>
-                        <button className="filter-tab">Active</button>
-                        <button className="filter-tab">Flagged</button>
+                        <button className={`filter-tab ${statusFilter === 'All' ? 'active' : ''}`} onClick={() => setStatusFilter('All')}>All Students</button>
+                        <button className={`filter-tab ${statusFilter === 'Active' ? 'active' : ''}`} onClick={() => setStatusFilter('Active')}>Active</button>
+                        <button className={`filter-tab ${statusFilter === 'Blocked' ? 'active' : ''}`} onClick={() => setStatusFilter('Blocked')}>Blocked</button>
                     </div>
                 </div>
 
@@ -211,15 +255,18 @@ const ManageStudents = () => {
                                     <div className="header-info">
                                         <h3>{student.username}</h3>
                                         <div className="badges">
-                                            <span className="status-badge active">
-                                                <ShieldCheck size={12} /> Active
+                                            <span className={`status-badge ${!student.is_blocked ? 'active' : 'blocked'}`}>
+                                                {!student.is_blocked ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
+                                                {!student.is_blocked ? 'Active' : 'Blocked'}
                                             </span>
                                             <span className="prn-badge">{student.prn_number}</span>
                                             {student.department && <span className="dept-badge">{student.department}</span>}
                                             {student.year && <span className="prn-badge">{student.year}</span>}
                                         </div>
                                     </div>
-                                    <button className="icon-btn"><MoreHorizontal size={20} /></button>
+                                    <button onClick={() => handleDeleteStudent(student.id)} className="icon-btn delete-student-btn" title="Delete Student">
+                                        <Trash2 size={20} />
+                                    </button>
                                 </div>
 
                                 <div className="card-body">
@@ -235,7 +282,12 @@ const ManageStudents = () => {
 
                                 <div className="card-footer">
                                     <button className="secondary-action">View Profile</button>
-                                    <button className="secondary-action text-error">Restrict Access</button>
+                                    <button
+                                        onClick={() => handleToggleBlock(student.id, student.is_blocked)}
+                                        className={`secondary-action ${!student.is_blocked ? 'text-error' : 'text-success'}`}
+                                    >
+                                        {!student.is_blocked ? 'Restrict Access' : 'Restore Access'}
+                                    </button>
                                 </div>
                             </motion.div>
                         ))
@@ -319,20 +371,76 @@ const ManageStudents = () => {
                                             <option>Fourth Year</option>
                                         </select>
                                     </div>
-                                    <div className="form-group">
-                                        <label>Password</label>
-                                        <input
-                                            type="password"
-                                            required
-                                            className="neo-input"
-                                            value={newStudent.password}
-                                            onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })}
-                                        />
-                                    </div>
                                     <button type="submit" className="neo-btn-primary full-width" disabled={isSubmitting}>
                                         {isSubmitting ? 'Creating...' : 'Create Student Account'}
                                     </button>
                                 </form>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                {/* Import Summary Modal */}
+                <AnimatePresence>
+                    {importSummary && (
+                        <div className="modal-overlay">
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="modal-content"
+                                style={{ maxWidth: '600px' }}
+                            >
+                                <div className="modal-header-simple">
+                                    <h2>Import Results</h2>
+                                    <button onClick={() => setImportSummary(null)} className="close-btn"><X size={20} /></button>
+                                </div>
+                                <div className="summary-stats" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+                                    <div className="stat-box success" style={{ flex: 1, padding: '1.25rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                                        <h3 style={{ color: '#10b981', margin: 0, fontSize: '2rem' }}>{importSummary.success.length}</h3>
+                                        <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Successfully Added</span>
+                                    </div>
+                                    <div className="stat-box error" style={{ flex: 1, padding: '1.25rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                                        <h3 style={{ color: '#ef4444', margin: 0, fontSize: '2rem' }}>{importSummary.failed.length}</h3>
+                                        <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Failed</span>
+                                    </div>
+                                </div>
+
+                                <div className="summary-lists" style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
+                                    {importSummary.failed.length > 0 && (
+                                        <div className="failed-list">
+                                            <h4 style={{ color: '#ef4444', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <ShieldAlert size={18} /> Failed Rows
+                                            </h4>
+                                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                {importSummary.failed.map((f: any, i: number) => (
+                                                    <li key={i} style={{ padding: '0.75rem 1rem', background: 'var(--surface-high)', borderRadius: '6px', fontSize: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', borderLeft: '3px solid #ef4444' }}>
+                                                        <strong style={{ color: 'var(--text-primary)' }}>{f.student.username || f.student.email || 'Unknown'}</strong>
+                                                        <span style={{ color: 'var(--text-secondary)' }}>Reason: {f.reason}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {importSummary.success.length > 0 && (
+                                        <div className="success-list">
+                                            <h4 style={{ color: '#10b981', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <ShieldCheck size={18} /> Added Successfully
+                                            </h4>
+                                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                                {importSummary.success.map((s: any, i: number) => (
+                                                    <li key={i} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-high)', borderRadius: '20px', fontSize: '0.75rem', border: '1px solid var(--border)' }}>
+                                                        {s.username} <span style={{ color: 'var(--text-muted)' }}>({s.prn_number})</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <button onClick={() => setImportSummary(null)} className="neo-btn-primary full-width" style={{ marginTop: '2rem' }}>
+                                    Done
+                                </button>
                             </motion.div>
                         </div>
                     )}
@@ -366,6 +474,7 @@ const ManageStudents = () => {
           .dept-badge { font-size: 0.625rem; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.3); padding: 0.2rem 0.5rem; border-radius: 4px; color: #f97316; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
           .status-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
           .status-badge.active { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+          .status-badge.blocked { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
           
           .card-body { display: flex; flex-direction: column; gap: 0.75rem; }
           .info-item { display: flex; align-items: center; gap: 0.75rem; font-size: 0.875rem; color: var(--text-secondary); }
@@ -374,6 +483,11 @@ const ManageStudents = () => {
           .secondary-action { font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); background: none; transition: var(--transition-fast); cursor: pointer; border: none; }
           .secondary-action:hover { color: var(--accent); }
           .secondary-action.text-error:hover { color: var(--error); }
+          .text-success { color: #10b981 !important; }
+          .text-success:hover { color: #059669 !important; }
+          
+          .delete-student-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.25rem; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+          .delete-student-btn:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
 
           /* Modal Styles */
           .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); z-index: 1000; display: flex; justify-content: center; align-items: center; }
