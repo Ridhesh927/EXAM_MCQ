@@ -20,21 +20,31 @@ import { getToken, getUser } from '../../utils/auth';
 const TakeExam = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [timeLeft, setTimeLeft] = useState(3600); // 1 hour in seconds
+  const [timeLeft, setTimeLeft] = useState(3600); // default, will be overridden by exam data
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
   const [warningCount, setWarningCount] = useState(0);
+  const warningCountRef = useRef(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [isExamTerminated, setIsExamTerminated] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
+  // Real exam data state
+  const [exam, setExam] = useState<any>(null);
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<{ [questionId: number]: number }>({});
+  const answersRef = useRef<{ [questionId: number]: number }>({});
+  const [examLoading, setExamLoading] = useState(true);
+  const [examError, setExamError] = useState<string | null>(null);
+
   // Face detection states
   const [faceCount, setFaceCount] = useState(0);
   const [multipleFaceWarnings, setMultipleFaceWarnings] = useState(0);
+  const multipleFaceWarningsRef = useRef(0);
   const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [lastViolationTime, setLastViolationTime] = useState(0);
+  const lastViolationTimeRef = useRef(0);
   const [detectionStabilized, setDetectionStabilized] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -45,6 +55,50 @@ const TakeExam = () => {
   const lastFullscreenState = useRef(false);
   const detectionIntervalRef = useRef<number | null>(null);
   const consecutiveMultipleFaces = useRef(0);
+
+  // Fetch real exam data from API
+  useEffect(() => {
+    const fetchExam = async () => {
+      try {
+        const token = getToken('student');
+        const res = await axios.get(`/api/exams/${id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = res.data;
+        setExam(data);
+
+        // Parse questions - options may be JSON string or array
+        const parsedQuestions = (data.questions || []).map((q: any) => ({
+          ...q,
+          options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options
+        }));
+        setQuestions(parsedQuestions);
+
+        // Set timer from exam duration (minutes -> seconds)
+        if (data.duration) {
+          setTimeLeft(data.duration * 60);
+        }
+      } catch (err: any) {
+        console.error('Failed to fetch exam:', err);
+        setExamError(err.response?.data?.message || 'Failed to load exam. Please try again.');
+      } finally {
+        setExamLoading(false);
+      }
+    };
+    if (id) fetchExam();
+  }, [id]);
+
+  // Handle selecting an answer
+  const selectAnswer = (questionId: number, optionIndex: number) => {
+    const newAnswers = { ...prevAnswers(), [questionId]: optionIndex };
+    setAnswers(newAnswers);
+    answersRef.current = newAnswers;
+  };
+
+  // Helper because answers state might be stale in closures
+  const prevAnswers = () => answersRef.current;
+
+  const answeredCount = Object.keys(answers).length;
 
   // Load face detection models
   useEffect(() => {
@@ -87,9 +141,9 @@ const TakeExam = () => {
           if (consecutiveMultipleFaces.current >= 2) {
             const now = Date.now();
             // Prevent duplicate warnings within 5 seconds
-            if (now - lastViolationTime > 5000) {
+            if (now - lastViolationTimeRef.current > 5000) {
               handleFaceViolation(currentFaceCount);
-              setLastViolationTime(now);
+              lastViolationTimeRef.current = now;
             }
           }
         } else {
@@ -119,7 +173,8 @@ const TakeExam = () => {
 
   // Handle face violation
   const handleFaceViolation = async (detectedFaces: number) => {
-    const newWarningCount = multipleFaceWarnings + 1;
+    const newWarningCount = multipleFaceWarningsRef.current + 1;
+    multipleFaceWarningsRef.current = newWarningCount;
     setMultipleFaceWarnings(newWarningCount);
 
     const violationType = detectedFaces === 0 ? 'No face detected' : `Multiple faces detected (${detectedFaces})`;
@@ -167,8 +222,28 @@ const TakeExam = () => {
 
       lastFullscreenState.current = currentFull;
     };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && hasStarted.current && !isExamTerminated) {
+        handleViolation("Tab Switched/Minimized");
+      }
+    };
+
+    const handleBlur = () => {
+      if (hasStarted.current && !isExamTerminated) {
+        handleViolation("Window Focus Lost");
+      }
+    };
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+    };
   }, [sessionId, isExamTerminated, warningCount]);
 
   useEffect(() => {
@@ -178,14 +253,16 @@ const TakeExam = () => {
   }, [warningCount, isExamTerminated]);
 
   const handleViolation = async (type: string) => {
-    setWarningCount(prev => prev + 1);
+    const newCount = warningCountRef.current + 1;
+    warningCountRef.current = newCount;
+    setWarningCount(newCount);
 
     if (sessionId) {
       try {
         await axios.post('/api/exams/session/warning', {
           sessionId,
           warningType: type,
-          message: `User exited fullscreen (Total warnings: ${warningCount + 1})`
+          message: `${type} detected (Total warnings: ${newCount})`
         });
       } catch (err) {
         console.error("Failed to log warning", err);
@@ -210,11 +287,14 @@ const TakeExam = () => {
 
     console.log(`Exam terminated: ${reason}`);
 
-    // Finalize session in DB
+    // Finalize session in DB with actual answers
+    const token = getToken('student');
     axios.post('/api/exams/submit', {
       examId: id,
-      answers: {},
-      completionTime: 3600 - timeLeft
+      answers: answersRef.current,
+      completionTime: (exam?.duration ? exam.duration * 60 : 3600) - timeLeft
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
     }).catch(err => console.error("Auto-submit failed", err));
   };
 
@@ -233,15 +313,18 @@ const TakeExam = () => {
     }
 
     try {
+      const token = getToken('student');
       await axios.post('/api/exams/submit', {
         examId: id,
-        answers: {},
-        completionTime: 3600 - timeLeft
+        answers,
+        completionTime: (exam?.duration ? exam.duration * 60 : 3600) - timeLeft
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      navigate('/student/dashboard');
+      navigate('/student/results');
     } catch (err) {
       console.error("Submission failed", err);
-      navigate('/student/dashboard');
+      navigate('/student/results');
     }
   };
 
@@ -408,6 +491,40 @@ const TakeExam = () => {
     )
   }
 
+  // Loading and error states for exam data
+  if (examLoading) {
+    return (
+      <div className="fullscreen-guard">
+        <div className="guard-content neo-card">
+          <div style={{ color: 'var(--accent)', fontSize: '1.25rem', fontWeight: 600 }}>Loading Exam...</div>
+          <p style={{ color: 'var(--text-secondary)' }}>Preparing your assessment environment.</p>
+        </div>
+        <style>{`
+          .fullscreen-guard { height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%); }
+          .guard-content { max-width: 520px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1.5rem; padding: 4rem; border: 1px solid rgba(255,255,255,0.05); background: rgba(20, 20, 22, 0.9); border-radius: var(--radius-md); }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (examError) {
+    return (
+      <div className="fullscreen-guard">
+        <div className="guard-content neo-card">
+          <AlertTriangle size={48} className="text-error" />
+          <h1 style={{ color: '#ef4444' }}>Cannot Load Exam</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>{examError}</p>
+          <button onClick={() => navigate('/student/exams')} className="neo-btn-primary">Back to Exams</button>
+        </div>
+        <style>{`
+          .fullscreen-guard { height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%); }
+          .guard-content { max-width: 520px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1.5rem; padding: 4rem; border: 1px solid rgba(255,255,255,0.05); background: rgba(20, 20, 22, 0.9); border-radius: var(--radius-md); }
+          .text-error { color: #ef4444; }
+        `}</style>
+      </div>
+    );
+  }
+
   if (!isFullscreen) {
     return (
       <div className="fullscreen-guard">
@@ -462,70 +579,6 @@ const TakeExam = () => {
                   <button onClick={enterFullscreen} className="neo-btn-primary">Try Again</button>
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Submit Confirmation Modal */}
-        <AnimatePresence>
-          {showSubmitModal && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="submit-modal-overlay"
-              onClick={() => setShowSubmitModal(false)}
-            >
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                className="submit-modal-content"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="submit-modal-header">
-                  <div className="submit-icon-wrapper">
-                    <AlertTriangle size={32} />
-                  </div>
-                  <h2>Finalize Submission</h2>
-                </div>
-
-                <div className="submit-modal-body">
-                  <p className="submit-warning-text">
-                    Are you sure you want to submit your assessment?
-                  </p>
-                  <p className="submit-info-text">
-                    Once submitted, you will not be able to make any changes to your answers.
-                  </p>
-
-                  <div className="submit-stats">
-                    <div className="stat-item">
-                      <span className="stat-label">Time Remaining</span>
-                      <span className="stat-value">{formatTime(timeLeft)}</span>
-                    </div>
-                    <div className="stat-item">
-                      <span className="stat-label">Questions Answered</span>
-                      <span className="stat-value">5/20</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="submit-modal-actions">
-                  <button
-                    onClick={() => setShowSubmitModal(false)}
-                    className="modal-btn modal-btn-cancel"
-                  >
-                    Continue Exam
-                  </button>
-                  <button
-                    onClick={confirmSubmit}
-                    className="modal-btn modal-btn-submit"
-                  >
-                    Submit Now
-                  </button>
-                </div>
-              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -900,8 +953,8 @@ const TakeExam = () => {
 
       <header className="exam-header">
         <div className="exam-info">
-          <span className="exam-id">ID: {id?.substring(0, 8)}</span>
-          <h2 className="exam-title">Quantum Mechanics Mid-Term</h2>
+          <span className="exam-id">{exam?.subject || 'Exam'}</span>
+          <h2 className="exam-title">{exam?.title || 'Assessment'}</h2>
         </div>
 
         <div className={`exam-timer ${timeLeft < 300 ? 'warning' : ''}`}>
@@ -948,40 +1001,47 @@ const TakeExam = () => {
         <main className="question-area">
           <div className="question-card neo-card">
             <header className="q-header">
-              <span className="q-number">Inquiry {currentQuestion + 1} of 20</span>
-              <span className="q-points">5 Points</span>
+              <span className="q-number">Inquiry {currentQuestion + 1} of {questions.length}</span>
+              <span className="q-points">{questions[currentQuestion]?.marks || 5} Points</span>
             </header>
 
-            <div className="q-content">
-              <p>Consider a particle in a one-dimensional infinite square well of width L. If the particle is in the first excited state, what is the probability of finding the particle in the left half of the well?</p>
+            {questions.length > 0 && questions[currentQuestion] ? (
+              <div className="q-content">
+                <p>{questions[currentQuestion].question}</p>
 
-              <div className="options-grid">
-                {['0.25', '0.50', '0.75', '1.00'].map((opt, i) => (
-                  <button
-                    key={i}
-                    className="option-btn"
-                    disabled={faceCount !== 1 && detectionStabilized}
-                    style={{ opacity: faceCount !== 1 && detectionStabilized ? 0.5 : 1, cursor: faceCount !== 1 && detectionStabilized ? 'not-allowed' : 'pointer' }}
-                  >
-                    <span className="opt-idx">{String.fromCharCode(65 + i)}</span>
-                    <span className="opt-text">{opt}</span>
-                  </button>
-                ))}
+                <div className="options-grid">
+                  {(questions[currentQuestion].options || []).map((opt: string, i: number) => (
+                    <button
+                      key={i}
+                      className={`option-btn ${answers[questions[currentQuestion].id] === i ? 'selected' : ''}`}
+                      disabled={faceCount !== 1 && detectionStabilized}
+                      onClick={() => selectAnswer(questions[currentQuestion].id, i)}
+                      style={{ opacity: faceCount !== 1 && detectionStabilized ? 0.5 : 1, cursor: faceCount !== 1 && detectionStabilized ? 'not-allowed' : 'pointer' }}
+                    >
+                      <span className="opt-idx">{String.fromCharCode(65 + i)}</span>
+                      <span className="opt-text">{opt}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="q-content">
+                <p style={{ color: 'var(--text-muted)' }}>No questions available for this exam.</p>
+              </div>
+            )}
 
             <footer className="question-nav">
               <button
                 className="text-btn"
                 onClick={() => setCurrentQuestion(q => Math.max(0, q - 1))}
-                disabled={faceCount !== 1 && detectionStabilized}
+                disabled={(faceCount !== 1 && detectionStabilized) || currentQuestion === 0}
               >
                 <ChevronLeft /> Previous
               </button>
               <button
                 className="text-btn"
-                onClick={() => setCurrentQuestion(q => Math.min(19, q + 1))}
-                disabled={faceCount !== 1 && detectionStabilized}
+                onClick={() => setCurrentQuestion(q => Math.min(questions.length - 1, q + 1))}
+                disabled={(faceCount !== 1 && detectionStabilized) || currentQuestion >= questions.length - 1}
               >
                 Next <ChevronRight />
               </button>
@@ -1023,10 +1083,10 @@ const TakeExam = () => {
           <div className="question-palette neo-card">
             <h3>Navigation Palette</h3>
             <div className="palette-grid">
-              {Array.from({ length: 20 }).map((_, i) => (
+              {questions.map((q, i) => (
                 <button
-                  key={i}
-                  className={`palette-idx ${i === currentQuestion ? 'active' : ''} ${i < 5 ? 'answered' : ''}`}
+                  key={q.id || i}
+                  className={`palette-idx ${i === currentQuestion ? 'active' : ''} ${answers[q.id] !== undefined ? 'answered' : ''}`}
                   onClick={() => setCurrentQuestion(i)}
                   disabled={faceCount !== 1 && detectionStabilized}
                 >
@@ -1045,6 +1105,70 @@ const TakeExam = () => {
           <SidebarIcon size={20} />
         </button>
       </div>
+
+      {/* Submit Confirmation Modal - rendered in fullscreen context */}
+      <AnimatePresence>
+        {showSubmitModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="submit-modal-overlay"
+            onClick={() => setShowSubmitModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="submit-modal-content"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="submit-modal-header">
+                <div className="submit-icon-wrapper">
+                  <AlertTriangle size={32} />
+                </div>
+                <h2>Finalize Submission</h2>
+              </div>
+
+              <div className="submit-modal-body">
+                <p className="submit-warning-text">
+                  Are you sure you want to submit your assessment?
+                </p>
+                <p className="submit-info-text">
+                  Once submitted, you will not be able to make any changes to your answers.
+                </p>
+
+                <div className="submit-stats">
+                  <div className="stat-item">
+                    <span className="stat-label">Time Remaining</span>
+                    <span className="stat-value">{formatTime(timeLeft)}</span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label">Questions Answered</span>
+                    <span className="stat-value">{answeredCount}/{questions.length}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="submit-modal-actions">
+                <button
+                  onClick={() => setShowSubmitModal(false)}
+                  className="modal-btn modal-btn-cancel"
+                >
+                  Continue Exam
+                </button>
+                <button
+                  onClick={confirmSubmit}
+                  className="modal-btn modal-btn-submit"
+                >
+                  Submit Now
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         .exam-take-layout {
@@ -1143,6 +1267,16 @@ const TakeExam = () => {
         .option-btn:hover {
           border-color: var(--accent);
           background: var(--surface);
+        }
+        .option-btn.selected {
+          border-color: var(--accent);
+          background: rgba(99, 102, 241, 0.15);
+          box-shadow: 0 0 0 1px var(--accent);
+        }
+        .option-btn.selected .opt-idx {
+          background: var(--accent);
+          color: #fff;
+          border-color: var(--accent);
         }
         .opt-idx {
           width: 32px;
@@ -1377,6 +1511,139 @@ const TakeExam = () => {
         .text-btn span {
           position: relative;
           z-index: 1;
+        }
+
+        /* Submit Modal Styles */
+        .submit-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.85);
+          backdrop-filter: blur(8px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+          padding: 2rem;
+        }
+
+        .submit-modal-content {
+          background: linear-gradient(135deg, rgba(28, 28, 31, 0.98) 0%, rgba(20, 20, 22, 0.98) 100%);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 16px;
+          max-width: 520px;
+          width: 100%;
+          overflow: hidden;
+          box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+        }
+
+        .submit-modal-header {
+          padding: 2rem 2rem 1.5rem;
+          text-align: center;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .submit-icon-wrapper {
+          width: 64px;
+          height: 64px;
+          margin: 0 auto 1rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(234, 88, 12, 0.15) 100%);
+          border: 2px solid rgba(249, 115, 22, 0.3);
+          border-radius: 50%;
+          color: #f97316;
+          animation: pulse-icon 2s infinite;
+        }
+
+        @keyframes pulse-icon {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
+          50% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(249, 115, 22, 0); }
+        }
+
+        .submit-modal-header h2 {
+          font-family: var(--font-display);
+          font-size: 1.75rem;
+          color: var(--text-primary);
+          margin: 0;
+          font-weight: 700;
+        }
+
+        .submit-modal-body {
+          padding: 2rem;
+        }
+
+        .submit-warning-text {
+          font-size: 1.125rem;
+          color: var(--text-primary);
+          font-weight: 600;
+          margin: 0 0 0.75rem 0;
+          text-align: center;
+        }
+
+        .submit-info-text {
+          font-size: 0.9375rem;
+          color: var(--text-secondary);
+          margin: 0 0 2rem 0;
+          text-align: center;
+          line-height: 1.6;
+        }
+
+        .submit-stats {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+          margin-bottom: 1rem;
+        }
+
+        .submit-modal-actions {
+          padding: 1.5rem 2rem 2rem;
+          display: flex;
+          gap: 1rem;
+        }
+
+        .modal-btn {
+          flex: 1;
+          padding: 0.875rem 1.5rem;
+          border-radius: 8px;
+          font-size: 0.9375rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          border: none;
+          font-family: inherit;
+        }
+
+        .modal-btn-cancel {
+          background: rgba(255, 255, 255, 0.05);
+          color: var(--text-primary);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-btn-cancel:hover {
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.2);
+          transform: translateY(-1px);
+        }
+
+        .modal-btn-submit {
+          background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+          color: white;
+          border: 1px solid rgba(249, 115, 22, 0.3);
+          box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+        }
+
+        .modal-btn-submit:hover {
+          background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+          box-shadow: 0 6px 16px rgba(249, 115, 22, 0.4);
+          transform: translateY(-1px);
+        }
+
+        .modal-btn:active {
+          transform: translateY(0);
         }
       `}</style>
     </div>

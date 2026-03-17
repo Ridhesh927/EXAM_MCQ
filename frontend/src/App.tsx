@@ -4,6 +4,9 @@ import Register from './pages/auth/Register';
 import StudentDashboard from './pages/student/StudentDashboard';
 import AvailableExams from './pages/student/AvailableExams';
 import TakeExam from './pages/student/TakeExam';
+import TakeInterview from './pages/student/TakeInterview';
+import InterviewResults from './pages/student/InterviewResults';
+import StudentResults from './pages/student/StudentResults';
 import Settings from './pages/student/Settings';
 
 import TeacherDashboard from './pages/teacher/TeacherDashboard';
@@ -33,6 +36,9 @@ function App() {
           <Route path="/student/dashboard" element={<StudentDashboard />} />
           <Route path="/student/exams" element={<AvailableExams />} />
           <Route path="/student/exam/:id" element={<TakeExam />} />
+          <Route path="/student/interview/:id" element={<TakeInterview />} />
+          <Route path="/student/interview/result/:id" element={<InterviewResults />} />
+          <Route path="/student/results" element={<StudentResults />} />
           <Route path="/student/settings" element={<Settings />} />
 
           {/* Teacher Routes */}

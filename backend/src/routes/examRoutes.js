@@ -19,6 +19,7 @@ router.get('/teacher/active-sessions/:examId', authMiddleware, roleMiddleware(['
 
 // Student routes
 router.get('/student/available', authMiddleware, roleMiddleware(['student']), examController.getAvailableExams);
+router.get('/student/results', authMiddleware, roleMiddleware(['student']), examController.getStudentResults);
 router.get('/:id', authMiddleware, roleMiddleware(['student']), examController.getExamDetails);
 router.post('/session/start', authMiddleware, roleMiddleware(['student']), examController.startExamSession);
 router.post('/session/warning', authMiddleware, roleMiddleware(['student']), examController.logWarning);

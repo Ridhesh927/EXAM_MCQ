@@ -13,9 +13,15 @@ exports.createExam = async (req, res) => {
         await connection.beginTransaction();
 
         try {
+            // Calculate total marks from questions if provided, otherwise use total_marks from body
+            let finalTotalMarks = total_marks;
+            if (questions && questions.length > 0) {
+                finalTotalMarks = questions.reduce((sum, q) => sum + (q.marks || 5), 0);
+            }
+
             const [examResult] = await connection.query(
                 'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department, target_year, status, scheduled_start) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department || null, target_year || null, status || 'Published', scheduled_start || null]
+                [title, subject, duration, finalTotalMarks, passing_marks, instructions, teacher_id, target_department || null, target_year || null, status || 'Published', scheduled_start || null]
             );
 
             const examId = examResult.insertId;
@@ -113,9 +119,11 @@ exports.updateExam = async (req, res) => {
         await connection.beginTransaction();
 
         try {
+            const calculatedTotalMarks = questions.reduce((sum, q) => sum + (q.marks !== undefined ? q.marks : 5), 0);
+
             await connection.query(
                 'UPDATE exams SET title=?, subject=?, duration=?, total_marks=?, passing_marks=?, target_department=?, target_year=?, status=? WHERE id=?',
-                [title, subject, duration, questions.length * 5, passing_marks, target_department || null, target_year || null, status || 'Draft', id]
+                [title, subject, duration, calculatedTotalMarks, passing_marks, target_department || null, target_year || null, status || 'Draft', id]
             );
 
             // For simplicity: clear student_responses first to avoid foreign key errors, then delete old questions and insert new ones
@@ -193,16 +201,46 @@ exports.getAvailableExams = async (req, res) => {
         );
         const student = studentRows[0] || {};
 
+        const studentDept = student.department || null;
+        const studentYear = student.year || null;
+
+        // Build dynamic WHERE clauses to handle NULL-safe comparisons properly.
+        // In MySQL, `column = NULL` is always FALSE, so we must use IS NULL checks.
+        // Logic:
+        //   - If target_department IS NULL -> exam is for ALL departments -> always show
+        //   - If student has a department set -> also show exams targeting that specific department
+        //   - If student has NO department set (NULL) -> only show exams targeting ALL (NULL)
+        // Same logic applies to year.
+        let deptCondition, yearCondition;
+        const params = [];
+
+        if (studentDept) {
+            deptCondition = '(e.target_department IS NULL OR e.target_department = ?)';
+            params.push(studentDept);
+        } else {
+            deptCondition = 'e.target_department IS NULL';
+        }
+
+        if (studentYear) {
+            yearCondition = '(e.target_year IS NULL OR e.target_year = ?)';
+            params.push(studentYear);
+        } else {
+            yearCondition = 'e.target_year IS NULL';
+        }
+
         const [rows] = await pool.query(
             `SELECT e.id, e.title, e.subject, e.duration, e.total_marks, e.passing_marks, e.instructions, e.status, e.scheduled_start,
              e.target_department, e.target_year,
              (SELECT COUNT(*) FROM exam_questions WHERE exam_id = e.id) as question_count
              FROM exams e
              WHERE e.status IN ('Published', 'Scheduled')
-             AND (e.target_department IS NULL OR e.target_department = ?)
-             AND (e.target_year IS NULL OR e.target_year = ?)
+             AND ${deptCondition}
+             AND ${yearCondition}
+             AND NOT EXISTS (
+                 SELECT 1 FROM exam_results er WHERE er.exam_id = e.id AND er.student_id = ?
+             )
              ORDER BY e.created_at DESC`,
-            [student.department || null, student.year || null]
+            [...params, req.user.id]
         );
 
         // Filter out scheduled exams that haven't started yet
@@ -256,21 +294,54 @@ exports.submitExam = async (req, res) => {
         const { examId, answers, completionTime } = req.body;
         const studentId = req.user.id;
 
+        console.log('[SUBMIT_EXAM] Received:', { examId, studentId, answers, completionTime });
+
+        if (!examId) {
+            return res.status(400).json({ error: 'examId is required' });
+        }
+
+        // Check if already submitted (prevent duplicates)
+        const [existing] = await pool.query(
+            'SELECT id FROM exam_results WHERE exam_id = ? AND student_id = ?',
+            [examId, studentId]
+        );
+        if (existing.length > 0) {
+            console.log('[SUBMIT_EXAM] Already submitted, returning existing result');
+            return res.json({ message: 'Exam already submitted', resultId: existing[0].id });
+        }
+
         const [questions] = await pool.query('SELECT id, correct_answer, marks FROM exam_questions WHERE exam_id = ?', [examId]);
+
+        console.log(`[SUBMIT_EXAM] Found ${questions.length} questions for exam ${examId}`);
 
         let score = 0;
         let correctCount = 0;
+        let examTotalMarks = 0;
+        const safeAnswers = answers || {};
 
         questions.forEach(q => {
-            if (answers[q.id] === q.correct_answer) {
+            examTotalMarks += q.marks;
+            // answers keys may be strings (from JSON), q.id is a number
+            const studentAnswer = safeAnswers[q.id] !== undefined ? safeAnswers[q.id] : safeAnswers[String(q.id)];
+            if (studentAnswer !== undefined && Number(studentAnswer) === Number(q.correct_answer)) {
                 score += q.marks;
                 correctCount++;
             }
         });
 
+        // Fallback to exam table total_marks if no questions found (unlikely)
+        if (examTotalMarks === 0) {
+            const [examData] = await pool.query('SELECT total_marks FROM exams WHERE id = ?', [examId]);
+            examTotalMarks = examData[0]?.total_marks || 0;
+        }
+
+        const safeCompletionTime = completionTime || 0;
+
+        console.log(`[SUBMIT_EXAM] Score: ${score}, Correct: ${correctCount}, Total Marks: ${examTotalMarks}, Time: ${safeCompletionTime}`);
+
         const [result] = await pool.query(
-            'INSERT INTO exam_results (exam_id, student_id, score, total_questions, correct_answers, completion_time) VALUES (?, ?, ?, ?, ?, ?)',
-            [examId, studentId, score, questions.length, correctCount, completionTime]
+            'INSERT INTO exam_results (exam_id, student_id, score, total_questions, correct_answers, total_marks, completion_time) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [examId, studentId, score, questions.length, correctCount, examTotalMarks, safeCompletionTime]
         );
 
         // Mark session as completed
@@ -283,7 +354,8 @@ exports.submitExam = async (req, res) => {
 
         res.json({ message: 'Exam submitted successfully', score, resultId: result.insertId });
     } catch (error) {
-        logger('SUBMIT_EXAM_ERROR', `Error submitting exam ID ${req.body.examId}`, { error: error.message });
+        console.error('[SUBMIT_EXAM_ERROR]', error);
+        logger('SUBMIT_EXAM_ERROR', `Error submitting exam ID ${req.body?.examId}`, { error: error.message });
         res.status(500).json({ error: error.message });
     }
 };
@@ -465,6 +537,14 @@ exports.uploadBulkQuestions = async (req, res) => {
                 'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty) VALUES ?',
                 [questionValues]
             );
+
+            // Also update total_marks for the exam
+            const totalMarks = questions.reduce((sum, q) => sum + (q.marks || 0), 0);
+            await pool.query(
+                'UPDATE exams SET total_marks = (SELECT SUM(marks) FROM exam_questions WHERE exam_id = ?) WHERE id = ?',
+                [examId, examId]
+            );
+
             return res.json({ message: 'Questions uploaded and saved successfully', count: questions.length });
         }
 
@@ -485,17 +565,47 @@ exports.getTeacherResults = async (req, res) => {
                 er.score,
                 er.total_questions,
                 er.correct_answers,
+                er.total_marks,
                 er.submitted_at,
                 s.username as student_name,
                 s.email as student_email,
-                e.title as exam_title,
-                e.total_marks
+                e.title as exam_title
             FROM exam_results er
             JOIN exams e ON er.exam_id = e.id
             JOIN students s ON er.student_id = s.id
             WHERE e.teacher_id = ?
             ORDER BY er.submitted_at DESC
         `, [teacherId]);
+
+        res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get Results for Student (their own results)
+exports.getStudentResults = async (req, res) => {
+    try {
+        const studentId = req.user.id;
+
+        const [results] = await pool.query(`
+            SELECT 
+                er.id,
+                er.exam_id,
+                er.score,
+                er.total_questions,
+                er.correct_answers,
+                er.total_marks,
+                er.completion_time,
+                er.submitted_at,
+                e.title as exam_title,
+                e.subject as exam_subject,
+                e.passing_marks
+            FROM exam_results er
+            JOIN exams e ON er.exam_id = e.id
+            WHERE er.student_id = ?
+            ORDER BY er.submitted_at DESC
+        `, [studentId]);
 
         res.json({ results });
     } catch (error) {

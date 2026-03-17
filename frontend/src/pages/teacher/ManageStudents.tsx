@@ -4,18 +4,30 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     UserPlus,
     Search,
-    MoreHorizontal,
-    Mail,
-    Calendar,
     ShieldCheck,
     ShieldAlert,
     FileSpreadsheet,
     X,
     Loader2,
-    Trash2
+    Trash2,
+    ChevronDown,
+    Users,
+    GraduationCap,
+    Building2
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import * as XLSX from 'xlsx';
+
+const DEPARTMENTS = [
+    'Computer Science (CSE)',
+    'Information Technology (IT)',
+    'Electronics & Telecom (ENTC)',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Electrical Engineering'
+];
+
+const YEARS = ['First Year', 'Second Year', 'Third Year', 'Fourth Year'];
 
 const ManageStudents = () => {
     const [students, setStudents] = useState<any[]>([]);
@@ -23,10 +35,14 @@ const ManageStudents = () => {
     const [fetchError, setFetchError] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
+    const [yearFilter, setYearFilter] = useState('All');
+    const [deptFilter, setDeptFilter] = useState('All');
     const [showAddModal, setShowAddModal] = useState(false);
-    const [newStudent, setNewStudent] = useState({ username: '', email: '', prn_number: '', password: 'student@123', department: '', year: '' });
+    const [newStudent, setNewStudent] = useState({ username: '', email: '', prn_number: '', password: 'Test@123', department: '', year: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [importSummary, setImportSummary] = useState<{ success: any[], failed: any[] } | null>(null);
+    const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -59,7 +75,7 @@ const ManageStudents = () => {
             });
             if (response.ok) {
                 setShowAddModal(false);
-                setNewStudent({ username: '', email: '', prn_number: '', password: 'student@123', department: '', year: '' });
+                setNewStudent({ username: '', email: '', prn_number: '', password: 'Test@123', department: '', year: '' });
                 fetchStudents();
             } else {
                 const data = await response.json();
@@ -90,7 +106,6 @@ const ManageStudents = () => {
                     return;
                 }
 
-                // Check for required headers in the first row
                 const firstRow: any = data[0];
                 const hasName = 'Name' in firstRow || 'name' in firstRow || 'Username' in firstRow || 'username' in firstRow;
                 const hasEmail = 'Email' in firstRow || 'email' in firstRow;
@@ -101,12 +116,11 @@ const ManageStudents = () => {
                     return;
                 }
 
-                // Map data to expected format
                 const formattedStudents = data.map((row: any) => ({
                     username: row.Name || row.name || row.Username || row.username,
                     email: row.Email || row.email,
                     prn_number: row.PRN || row.prn || row.prn_number,
-                    password: row.Password || row.password || 'student@123', // Default password if missing
+                    password: row.Password || row.password || 'Test@123',
                     department: row.Department || row.department || '',
                     year: row.Year || row.year || ''
                 }));
@@ -129,7 +143,6 @@ const ManageStudents = () => {
                 alert('Error parsing file');
             }
 
-            // Reset the file input so the same file can be uploaded again if needed
             if (fileInputRef.current) fileInputRef.current.value = '';
         };
         reader.readAsBinaryString(file);
@@ -149,20 +162,32 @@ const ManageStudents = () => {
         }
     };
 
-    const handleDeleteStudent = async (studentId: string) => {
-        if (!confirm('Are you sure you want to delete this student?')) return;
+    const handleDeleteStudent = (studentId: string, studentName: string) => {
+        setDeleteConfirm({ id: studentId, name: studentName });
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteConfirm) return;
+        setIsDeleting(true);
         try {
-            const response = await apiFetch(`/api/auth/admin/user/student/${studentId}`, { method: 'DELETE' });
+            const response = await apiFetch(`/api/auth/admin/user/student/${deleteConfirm.id}`, { method: 'DELETE' });
             if (response.ok) {
-                setStudents(prev => prev.filter(s => s.id !== studentId));
+                setStudents(prev => prev.filter(s => s.id !== deleteConfirm.id));
+                setDeleteConfirm(null);
             } else {
                 const data = await response.json();
                 alert(data.message || 'Failed to delete student');
             }
         } catch (error: any) {
             alert(error.message || 'Error deleting student');
+        } finally {
+            setIsDeleting(false);
         }
     };
+
+    // Derive unique departments and years from actual data for filter options
+    const availableDepts = DEPARTMENTS;
+    const availableYears = YEARS;
 
     const filteredStudents = students.filter(student => {
         const matchesSearch = student.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -171,8 +196,13 @@ const ManageStudents = () => {
         const matchesStatus = statusFilter === 'All' ||
             (statusFilter === 'Active' && !student.is_blocked) ||
             (statusFilter === 'Blocked' && student.is_blocked);
-        return matchesSearch && matchesStatus;
+        const matchesYear = yearFilter === 'All' || student.year === yearFilter;
+        const matchesDept = deptFilter === 'All' || student.department === deptFilter;
+        return matchesSearch && matchesStatus && matchesYear && matchesDept;
     });
+
+    const totalActive = students.filter(s => !s.is_blocked).length;
+    const totalBlocked = students.filter(s => s.is_blocked).length;
 
     return (
         <DashboardLayout userType="teacher">
@@ -193,13 +223,6 @@ const ManageStudents = () => {
                         <a href="/student_template.csv" download className="neo-btn-secondary" style={{ textDecoration: 'none' }}>
                             <FileSpreadsheet size={18} /> Template
                         </a>
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            style={{ display: 'none' }}
-                            accept=".csv, .xlsx, .xls"
-                            onChange={handleFileUpload}
-                        />
                         <button className="neo-btn-secondary" onClick={() => fileInputRef.current?.click()}>
                             <FileSpreadsheet size={18} /> Import CSV/Excel
                         </button>
@@ -209,100 +232,166 @@ const ManageStudents = () => {
                     </div>
                 </header>
 
-                <div className="table-actions neo-card">
-                    <div className="search-bar">
-                        <Search size={18} />
-                        <input
-                            type="text"
-                            placeholder="Search by name, email or ID..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
+                {/* Summary Stats */}
+                <div className="summary-row">
+                    <div className="summary-chip">
+                        <Users size={16} />
+                        <span>Total: <strong>{students.length}</strong></span>
                     </div>
-                    <div className="filter-group">
-                        <button className={`filter-tab ${statusFilter === 'All' ? 'active' : ''}`} onClick={() => setStatusFilter('All')}>All Students</button>
-                        <button className={`filter-tab ${statusFilter === 'Active' ? 'active' : ''}`} onClick={() => setStatusFilter('Active')}>Active</button>
-                        <button className={`filter-tab ${statusFilter === 'Blocked' ? 'active' : ''}`} onClick={() => setStatusFilter('Blocked')}>Blocked</button>
+                    <div className="summary-chip active-chip">
+                        <ShieldCheck size={16} />
+                        <span>Active: <strong>{totalActive}</strong></span>
+                    </div>
+                    <div className="summary-chip blocked-chip">
+                        <ShieldAlert size={16} />
+                        <span>Blocked: <strong>{totalBlocked}</strong></span>
                     </div>
                 </div>
 
-                <div className="students-grid">
-                    {loading ? (
-                        <div className="loading-state">
-                            <Loader2 className="animate-spin text-accent" size={32} />
-                            <p>Loading directory...</p>
+                {/* Search + Filters */}
+                <div className="controls-panel neo-card">
+                    <div className="search-row">
+                        <div className="search-bar">
+                            <Search size={18} />
+                            <input
+                                type="text"
+                                placeholder="Search by name, email or PRN..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
                         </div>
-                    ) : fetchError ? (
-                        <div className="empty-state" style={{ color: '#ef4444' }}>
-                            <p>❌ Error loading students: {fetchError}</p>
-                            <p style={{ fontSize: '0.75rem', color: '#a1a1aa' }}>Check browser console (F12) for details.</p>
+                        <div className="status-tabs">
+                            {['All', 'Active', 'Blocked'].map(tab => (
+                                <button
+                                    key={tab}
+                                    className={`filter-tab ${statusFilter === tab ? 'active' : ''}`}
+                                    onClick={() => setStatusFilter(tab)}
+                                >
+                                    {tab === 'All' ? `All Students` : tab}
+                                </button>
+                            ))}
                         </div>
-                    ) : filteredStudents.length === 0 ? (
-                        <div className="empty-state">
-                            <p>No students found.</p>
+                    </div>
+                    <div className="filter-row">
+                        <div className="filter-dropdown">
+                            <Building2 size={15} />
+                            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
+                                <option value="All">All Departments</option>
+                                {availableDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                            <ChevronDown size={14} className="dropdown-icon" />
                         </div>
-                    ) : (
-                        filteredStudents.map((student, i) => (
-                            <motion.div
-                                key={student.id}
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ delay: i * 0.05 }}
-                                className="student-card neo-card"
-                            >
-                                <div className="card-header">
-                                    <div className="avatar-large">{student.username.charAt(0).toUpperCase()}</div>
-                                    <div className="header-info">
-                                        <h3>{student.username}</h3>
-                                        <div className="badges">
-                                            <span className={`status-badge ${!student.is_blocked ? 'active' : 'blocked'}`}>
-                                                {!student.is_blocked ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
-                                                {!student.is_blocked ? 'Active' : 'Blocked'}
-                                            </span>
-                                            <span className="prn-badge">{student.prn_number}</span>
-                                            {student.department && <span className="dept-badge">{student.department}</span>}
-                                            {student.year && <span className="prn-badge">{student.year}</span>}
+                        <div className="filter-dropdown">
+                            <GraduationCap size={15} />
+                            <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
+                                <option value="All">All Years</option>
+                                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                            </select>
+                            <ChevronDown size={14} className="dropdown-icon" />
+                        </div>
+                        {(deptFilter !== 'All' || yearFilter !== 'All') && (
+                            <button className="clear-filters" onClick={() => { setDeptFilter('All'); setYearFilter('All'); }}>
+                                <X size={14} /> Clear Filters
+                            </button>
+                        )}
+                        <span className="result-count">{filteredStudents.length} student{filteredStudents.length !== 1 ? 's' : ''} found</span>
+                    </div>
+                </div>
+
+                {/* Student List */}
+                <div className="student-list-container neo-card">
+                    {/* List Header */}
+                    <div className="list-header">
+                        <span className="col-name">Student</span>
+                        <span className="col-prn">PRN</span>
+                        <span className="col-dept">Department</span>
+                        <span className="col-year">Year</span>
+                        <span className="col-status">Status</span>
+                        <span className="col-joined">Joined</span>
+                        <span className="col-actions">Actions</span>
+                    </div>
+
+                    <div className="list-body">
+                        {loading ? (
+                            <div className="loading-state">
+                                <Loader2 className="animate-spin text-accent" size={28} />
+                                <p>Loading directory...</p>
+                            </div>
+                        ) : fetchError ? (
+                            <div className="empty-state" style={{ color: '#ef4444' }}>
+                                <p>❌ Error loading students: {fetchError}</p>
+                                <p style={{ fontSize: '0.75rem', color: '#a1a1aa' }}>Check browser console (F12) for details.</p>
+                            </div>
+                        ) : filteredStudents.length === 0 ? (
+                            <div className="empty-state">
+                                <Users size={40} style={{ opacity: 0.3 }} />
+                                <p>No students found matching your criteria.</p>
+                            </div>
+                        ) : (
+                            filteredStudents.map((student, i) => (
+                                <motion.div
+                                    key={student.id}
+                                    initial={{ opacity: 0, y: 6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: i * 0.02 }}
+                                    className="list-row"
+                                >
+                                    <div className="col-name">
+                                        <div className="avatar-sm">{student.username.charAt(0).toUpperCase()}</div>
+                                        <div className="name-email">
+                                            <span className="student-name">{student.username}</span>
+                                            <span className="student-email">{student.email}</span>
                                         </div>
                                     </div>
-                                    <button onClick={() => handleDeleteStudent(student.id)} className="icon-btn delete-student-btn" title="Delete Student">
-                                        <Trash2 size={20} />
-                                    </button>
-                                </div>
-
-                                <div className="card-body">
-                                    <div className="info-item">
-                                        <Mail size={16} />
-                                        <span>{student.email}</span>
+                                    <span className="col-prn">
+                                        <code>{student.prn_number}</code>
+                                    </span>
+                                    <span className="col-dept">
+                                        {student.department || <span className="text-muted">—</span>}
+                                    </span>
+                                    <span className="col-year">
+                                        {student.year || <span className="text-muted">—</span>}
+                                    </span>
+                                    <span className="col-status">
+                                        <span className={`status-pill ${!student.is_blocked ? 'active' : 'blocked'}`}>
+                                            {!student.is_blocked ? 'Active' : 'Blocked'}
+                                        </span>
+                                    </span>
+                                    <span className="col-joined">
+                                        {new Date(student.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                    </span>
+                                    <div className="col-actions">
+                                        <button
+                                            onClick={() => handleToggleBlock(student.id, student.is_blocked)}
+                                            className={`action-btn ${!student.is_blocked ? 'block-btn' : 'unblock-btn'}`}
+                                            title={!student.is_blocked ? 'Block Student' : 'Unblock Student'}
+                                        >
+                                            {!student.is_blocked ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />}
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteStudent(student.id, student.username)}
+                                            className="action-btn delete-btn"
+                                            title="Delete Student"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
                                     </div>
-                                    <div className="info-item">
-                                        <Calendar size={16} />
-                                        <span>Joined {new Date(student.created_at).toLocaleDateString()}</span>
-                                    </div>
-                                </div>
-
-                                <div className="card-footer">
-                                    <button className="secondary-action">View Profile</button>
-                                    <button
-                                        onClick={() => handleToggleBlock(student.id, student.is_blocked)}
-                                        className={`secondary-action ${!student.is_blocked ? 'text-error' : 'text-success'}`}
-                                    >
-                                        {!student.is_blocked ? 'Restrict Access' : 'Restore Access'}
-                                    </button>
-                                </div>
-                            </motion.div>
-                        ))
-                    )}
+                                </motion.div>
+                            ))
+                        )}
+                    </div>
                 </div>
 
                 {/* Add Student Modal */}
                 <AnimatePresence>
                     {showAddModal && (
-                        <div className="modal-overlay">
+                        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
                             <motion.div
                                 initial={{ scale: 0.9, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
                                 exit={{ scale: 0.9, opacity: 0 }}
                                 className="modal-content"
+                                onClick={(e) => e.stopPropagation()}
                             >
                                 <div className="modal-header-simple">
                                     <h2>Add New Student</h2>
@@ -311,65 +400,36 @@ const ManageStudents = () => {
                                 <form onSubmit={handleAddStudent} className="modal-form">
                                     <div className="form-group">
                                         <label>Full Name</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="neo-input"
-                                            value={newStudent.username}
-                                            onChange={(e) => setNewStudent({ ...newStudent, username: e.target.value })}
-                                        />
+                                        <input type="text" required className="neo-input" value={newStudent.username}
+                                            onChange={(e) => setNewStudent({ ...newStudent, username: e.target.value })} />
                                     </div>
                                     <div className="form-group">
                                         <label>Email Address</label>
-                                        <input
-                                            type="email"
-                                            required
-                                            className="neo-input"
-                                            value={newStudent.email}
-                                            onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
-                                        />
+                                        <input type="email" required className="neo-input" value={newStudent.email}
+                                            onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })} />
                                     </div>
                                     <div className="form-group">
                                         <label>PRN Number</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            className="neo-input"
-                                            value={newStudent.prn_number}
-                                            onChange={(e) => setNewStudent({ ...newStudent, prn_number: e.target.value })}
-                                        />
+                                        <input type="text" required className="neo-input" value={newStudent.prn_number}
+                                            onChange={(e) => setNewStudent({ ...newStudent, prn_number: e.target.value })} />
                                     </div>
-                                    <div className="form-group">
-                                        <label>Department</label>
-                                        <select
-                                            required
-                                            className="neo-input"
-                                            value={newStudent.department}
-                                            onChange={(e) => setNewStudent({ ...newStudent, department: e.target.value })}
-                                        >
-                                            <option value="">Select Department</option>
-                                            <option>Computer Science (CSE)</option>
-                                            <option>Information Technology (IT)</option>
-                                            <option>Electronics & Telecom (ENTC)</option>
-                                            <option>Mechanical Engineering</option>
-                                            <option>Civil Engineering</option>
-                                            <option>Electrical Engineering</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
-                                        <label>Year</label>
-                                        <select
-                                            required
-                                            className="neo-input"
-                                            value={newStudent.year}
-                                            onChange={(e) => setNewStudent({ ...newStudent, year: e.target.value })}
-                                        >
-                                            <option value="">Select Year</option>
-                                            <option>First Year</option>
-                                            <option>Second Year</option>
-                                            <option>Third Year</option>
-                                            <option>Fourth Year</option>
-                                        </select>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Department</label>
+                                            <select required className="neo-input" value={newStudent.department}
+                                                onChange={(e) => setNewStudent({ ...newStudent, department: e.target.value })}>
+                                                <option value="">Select Department</option>
+                                                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Year</label>
+                                            <select required className="neo-input" value={newStudent.year}
+                                                onChange={(e) => setNewStudent({ ...newStudent, year: e.target.value })}>
+                                                <option value="">Select Year</option>
+                                                {YEARS.map(y => <option key={y}>{y}</option>)}
+                                            </select>
+                                        </div>
                                     </div>
                                     <button type="submit" className="neo-btn-primary full-width" disabled={isSubmitting}>
                                         {isSubmitting ? 'Creating...' : 'Create Student Account'}
@@ -383,40 +443,38 @@ const ManageStudents = () => {
                 {/* Import Summary Modal */}
                 <AnimatePresence>
                     {importSummary && (
-                        <div className="modal-overlay">
+                        <div className="modal-overlay" onClick={() => setImportSummary(null)}>
                             <motion.div
                                 initial={{ scale: 0.9, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
                                 exit={{ scale: 0.9, opacity: 0 }}
                                 className="modal-content"
                                 style={{ maxWidth: '600px' }}
+                                onClick={(e) => e.stopPropagation()}
                             >
                                 <div className="modal-header-simple">
                                     <h2>Import Results</h2>
                                     <button onClick={() => setImportSummary(null)} className="close-btn"><X size={20} /></button>
                                 </div>
-                                <div className="summary-stats" style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
-                                    <div className="stat-box success" style={{ flex: 1, padding: '1.25rem', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                                        <h3 style={{ color: '#10b981', margin: 0, fontSize: '2rem' }}>{importSummary.success.length}</h3>
-                                        <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Successfully Added</span>
+                                <div className="import-stats">
+                                    <div className="import-stat success">
+                                        <h3>{importSummary.success.length}</h3>
+                                        <span>Successfully Added</span>
                                     </div>
-                                    <div className="stat-box error" style={{ flex: 1, padding: '1.25rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                                        <h3 style={{ color: '#ef4444', margin: 0, fontSize: '2rem' }}>{importSummary.failed.length}</h3>
-                                        <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Failed</span>
+                                    <div className="import-stat error">
+                                        <h3>{importSummary.failed.length}</h3>
+                                        <span>Failed</span>
                                     </div>
                                 </div>
-
-                                <div className="summary-lists" style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingRight: '0.5rem' }}>
+                                <div className="import-details">
                                     {importSummary.failed.length > 0 && (
                                         <div className="failed-list">
-                                            <h4 style={{ color: '#ef4444', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <ShieldAlert size={18} /> Failed Rows
-                                            </h4>
-                                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                            <h4><ShieldAlert size={16} /> Failed Rows</h4>
+                                            <ul>
                                                 {importSummary.failed.map((f: any, i: number) => (
-                                                    <li key={i} style={{ padding: '0.75rem 1rem', background: 'var(--surface-high)', borderRadius: '6px', fontSize: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', borderLeft: '3px solid #ef4444' }}>
-                                                        <strong style={{ color: 'var(--text-primary)' }}>{f.student.username || f.student.email || 'Unknown'}</strong>
-                                                        <span style={{ color: 'var(--text-secondary)' }}>Reason: {f.reason}</span>
+                                                    <li key={i} className="failed-item">
+                                                        <strong>{f.student.username || f.student.email || 'Unknown'}</strong>
+                                                        <span>{f.reason}</span>
                                                     </li>
                                                 ))}
                                             </ul>
@@ -424,21 +482,18 @@ const ManageStudents = () => {
                                     )}
                                     {importSummary.success.length > 0 && (
                                         <div className="success-list">
-                                            <h4 style={{ color: '#10b981', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <ShieldCheck size={18} /> Added Successfully
-                                            </h4>
-                                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                            <h4><ShieldCheck size={16} /> Added Successfully</h4>
+                                            <div className="success-chips">
                                                 {importSummary.success.map((s: any, i: number) => (
-                                                    <li key={i} style={{ padding: '0.5rem 0.75rem', background: 'var(--surface-high)', borderRadius: '20px', fontSize: '0.75rem', border: '1px solid var(--border)' }}>
-                                                        {s.username} <span style={{ color: 'var(--text-muted)' }}>({s.prn_number})</span>
-                                                    </li>
+                                                    <span key={i} className="success-chip">
+                                                        {s.username} <span className="text-muted">({s.prn_number})</span>
+                                                    </span>
                                                 ))}
-                                            </ul>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-
-                                <button onClick={() => setImportSummary(null)} className="neo-btn-primary full-width" style={{ marginTop: '2rem' }}>
+                                <button onClick={() => setImportSummary(null)} className="neo-btn-primary full-width" style={{ marginTop: '1.5rem' }}>
                                     Done
                                 </button>
                             </motion.div>
@@ -446,67 +501,177 @@ const ManageStudents = () => {
                     )}
                 </AnimatePresence>
 
+                {/* Delete Confirmation Modal */}
+                <AnimatePresence>
+                    {deleteConfirm && (
+                        <div className="modal-overlay" onClick={() => !isDeleting && setDeleteConfirm(null)}>
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="delete-modal"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="delete-icon-wrapper">
+                                    <Trash2 size={28} />
+                                </div>
+                                <h3>Delete Student</h3>
+                                <p>Are you sure you want to permanently delete <strong>{deleteConfirm.name}</strong>? This action cannot be undone and all associated data (exam results, sessions) will be removed.</p>
+                                <div className="delete-modal-actions">
+                                    <button
+                                        className="cancel-btn"
+                                        onClick={() => setDeleteConfirm(null)}
+                                        disabled={isDeleting}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        className="confirm-delete-btn"
+                                        onClick={confirmDelete}
+                                        disabled={isDeleting}
+                                    >
+                                        {isDeleting ? <><Loader2 size={16} className="animate-spin" /> Deleting...</> : <><Trash2 size={16} /> Delete Student</>}
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
                 <style>{`
-          .students-page { display: flex; flex-direction: column; gap: 2rem; }
+          .students-page { display: flex; flex-direction: column; gap: 1.5rem; }
           .page-header { display: flex; justify-content: space-between; align-items: center; }
           .page-header h1 { font-size: 2.25rem; margin-bottom: 0.5rem; font-family: var(--font-display); }
-          
-          .header-actions { display: flex; gap: 1rem; }
-          .neo-btn-secondary { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.25rem; background: var(--surface-low); border: 1px solid var(--border); color: var(--text-primary); font-weight: 700; font-size: 0.875rem; border-radius: var(--radius-sm); transition: var(--transition-fast); cursor: pointer; }
+
+          .header-actions { display: flex; gap: 0.75rem; }
+          .neo-btn-secondary { display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 1.1rem; background: var(--surface-low); border: 1px solid var(--border); color: var(--text-primary); font-weight: 600; font-size: 0.8125rem; border-radius: var(--radius-sm); transition: var(--transition-fast); cursor: pointer; }
           .neo-btn-secondary:hover { background: var(--surface-high); }
-          
-          .table-actions { padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; background: var(--surface-low); }
-          .search-bar { display: flex; align-items: center; gap: 1rem; color: var(--text-muted); flex: 1; max-width: 400px; }
+
+          /* Summary row */
+          .summary-row { display: flex; gap: 1rem; }
+          .summary-chip { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--surface-low); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.8125rem; color: var(--text-secondary); }
+          .summary-chip strong { color: var(--text-primary); }
+          .summary-chip.active-chip { border-color: rgba(16, 185, 129, 0.3); }
+          .summary-chip.active-chip svg { color: #10b981; }
+          .summary-chip.blocked-chip { border-color: rgba(239, 68, 68, 0.3); }
+          .summary-chip.blocked-chip svg { color: #ef4444; }
+
+          /* Controls panel */
+          .controls-panel { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--surface-low); }
+          .search-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+          .search-bar { display: flex; align-items: center; gap: 0.75rem; color: var(--text-muted); flex: 1; max-width: 400px; background: var(--surface-high); padding: 0.6rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); }
           .search-bar input { background: none; color: var(--text-primary); border: none; outline: none; width: 100%; font-size: 0.875rem; }
-          
-          .students-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; padding-bottom: 2rem; }
-          .loading-state, .empty-state { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem; color: var(--text-muted); gap: 1rem; }
-          
-          .student-card { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; background: var(--surface-low); }
-          
-          .card-header { display: flex; align-items: center; gap: 1.25rem; }
-          .avatar-large { width: 56px; height: 56px; background: var(--surface-high); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; color: var(--accent); }
-          .header-info { flex: 1; }
-          .header-info h3 { font-size: 1.125rem; margin-bottom: 0.25rem; color: var(--text-primary); }
-          
-          .badges { display: flex; gap: 0.5rem; align-items: center; }
-          .prn-badge { font-size: 0.625rem; background: var(--surface); padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--text-muted); font-family: monospace; }
-          .dept-badge { font-size: 0.625rem; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.3); padding: 0.2rem 0.5rem; border-radius: 4px; color: #f97316; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-          .status-badge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
-          .status-badge.active { background: rgba(16, 185, 129, 0.1); color: #10b981; }
-          .status-badge.blocked { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
-          
-          .card-body { display: flex; flex-direction: column; gap: 0.75rem; }
-          .info-item { display: flex; align-items: center; gap: 0.75rem; font-size: 0.875rem; color: var(--text-secondary); }
-          
-          .card-footer { display: flex; gap: 1rem; border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: auto; }
-          .secondary-action { font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); background: none; transition: var(--transition-fast); cursor: pointer; border: none; }
-          .secondary-action:hover { color: var(--accent); }
-          .secondary-action.text-error:hover { color: var(--error); }
-          .text-success { color: #10b981 !important; }
-          .text-success:hover { color: #059669 !important; }
-          
-          .delete-student-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.25rem; border-radius: 4px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
-          .delete-student-btn:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+          .status-tabs { display: flex; gap: 0.25rem; background: var(--surface-high); padding: 0.25rem; border-radius: var(--radius-sm); }
 
-          /* Modal Styles */
-          .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); z-index: 1000; display: flex; justify-content: center; align-items: center; }
-          .modal-content { background: var(--bg); border: 1px solid var(--border); width: 100%; max-width: 450px; border-radius: var(--radius-md); padding: 2rem; }
+          .filter-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+          .filter-dropdown { display: flex; align-items: center; gap: 0.5rem; background: var(--surface-high); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border); position: relative; color: var(--text-secondary); }
+          .filter-dropdown svg:first-child { flex-shrink: 0; opacity: 0.6; }
+          .filter-dropdown select { background: none; border: none; outline: none; color: var(--text-primary); font-size: 0.8125rem; appearance: none; padding-right: 1.25rem; cursor: pointer; min-width: 120px; }
+          .dropdown-icon { position: absolute; right: 0.5rem; pointer-events: none; opacity: 0.5; }
+          .clear-filters { display: flex; align-items: center; gap: 0.35rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; padding: 0.4rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: var(--transition-fast); }
+          .clear-filters:hover { background: rgba(239, 68, 68, 0.2); }
+          .result-count { margin-left: auto; font-size: 0.8125rem; color: var(--text-muted); }
+
+          .filter-tab { padding: 0.45rem 0.9rem; border: none; background: none; color: var(--text-muted); font-size: 0.8125rem; font-weight: 600; cursor: pointer; border-radius: calc(var(--radius-sm) - 2px); transition: var(--transition-fast); }
+          .filter-tab:hover { color: var(--text-primary); }
+          .filter-tab.active { background: var(--accent); color: #000; }
+
+          /* Student list */
+          .student-list-container { padding: 0; overflow: hidden; background: var(--surface-low); }
+          .list-header { display: grid; grid-template-columns: 2fr 1fr 1.5fr 1fr 0.8fr 1fr 0.7fr; padding: 0.9rem 1.5rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+          .list-body { max-height: 520px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--surface-high) transparent; }
+          .list-body::-webkit-scrollbar { width: 6px; }
+          .list-body::-webkit-scrollbar-track { background: transparent; }
+          .list-body::-webkit-scrollbar-thumb { background: var(--surface-high); border-radius: 3px; }
+
+          .list-row { display: grid; grid-template-columns: 2fr 1fr 1.5fr 1fr 0.8fr 1fr 0.7fr; padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--border); align-items: center; transition: background 0.15s ease; }
+          .list-row:last-child { border-bottom: none; }
+          .list-row:hover { background: rgba(255,255,255,0.02); }
+
+          .col-name { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+          .avatar-sm { width: 36px; height: 36px; min-width: 36px; background: var(--surface-high); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.875rem; font-weight: 700; color: var(--accent); }
+          .name-email { display: flex; flex-direction: column; min-width: 0; }
+          .student-name { font-size: 0.875rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          .student-email { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+          .col-prn code { font-size: 0.8125rem; background: var(--surface-high); padding: 0.15rem 0.5rem; border-radius: 4px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+          .col-dept, .col-year, .col-joined { font-size: 0.8125rem; color: var(--text-secondary); }
+          .col-status { font-size: 0.8125rem; }
+          .text-muted { color: var(--text-muted); }
+
+          .status-pill { display: inline-flex; align-items: center; padding: 0.2rem 0.65rem; border-radius: 20px; font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+          .status-pill.active { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+          .status-pill.blocked { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+
+          .col-actions { display: flex; gap: 0.35rem; }
+          .action-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s ease; background: var(--surface-high); color: var(--text-muted); }
+          .action-btn:hover { color: var(--text-primary); }
+          .block-btn:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+          .unblock-btn:hover { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+          .delete-btn:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+
+          .loading-state, .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem 2rem; color: var(--text-muted); gap: 0.75rem; text-align: center; }
+          .empty-state p { font-size: 0.9375rem; margin: 0; }
+
+          /* Modal */
+          .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 1000; display: flex; justify-content: center; align-items: center; }
+          .modal-content { background: var(--bg); border: 1px solid var(--border); width: 100%; max-width: 480px; border-radius: var(--radius-md); padding: 2rem; }
           .modal-header-simple { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-          .modal-header-simple h2 { margin: 0; font-size: 1.5rem; }
-          .close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; }
+          .modal-header-simple h2 { margin: 0; font-size: 1.375rem; }
+          .close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.25rem; }
           .close-btn:hover { color: var(--text-primary); }
-          .modal-form { display: flex; flex-direction: column; gap: 1rem; }
-          .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
-          .form-group label { font-size: 0.875rem; color: var(--text-secondary); font-weight: 600; }
-          .neo-input { background: var(--surface-low); border: 1px solid var(--border); padding: 0.75rem; border-radius: var(--radius-sm); color: var(--text-primary); }
-          .neo-input:focus { border-color: var(--accent); outline: none; }
-          .full-width { width: 100%; justify-content: center; margin-top: 1rem; }
 
-          @media (max-width: 768px) {
-            .page-header { flex-direction: column; align-items: flex-start; gap: 1.5rem; }
-            .header-actions { width: 100%; flex-direction: column; }
-            .header-actions button { width: 100%; justify-content: center; }
+          /* Delete Modal */
+          .delete-modal { background: var(--bg); border: 1px solid var(--border); width: 100%; max-width: 420px; border-radius: var(--radius-md); padding: 2.5rem 2rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1rem; }
+          .delete-icon-wrapper { width: 64px; height: 64px; border-radius: 50%; background: rgba(239, 68, 68, 0.1); color: #ef4444; display: flex; align-items: center; justify-content: center; margin-bottom: 0.5rem; }
+          .delete-modal h3 { font-size: 1.5rem; margin: 0; color: var(--text-primary); }
+          .delete-modal p { color: var(--text-secondary); font-size: 0.9375rem; line-height: 1.5; margin: 0; }
+          .delete-modal-actions { display: flex; gap: 1rem; width: 100%; margin-top: 1.5rem; }
+          .cancel-btn, .confirm-delete-btn { flex: 1; padding: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; font-size: 0.875rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; cursor: pointer; transition: all 0.2s; border: none; }
+          .cancel-btn { background: var(--surface-high); color: var(--text-primary); }
+          .cancel-btn:hover { background: var(--border); }
+          .confirm-delete-btn { background: #ef4444; color: white; }
+          .confirm-delete-btn:hover { background: #dc2626; }
+          .confirm-delete-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+          .modal-form { display: flex; flex-direction: column; gap: 1rem; }
+          .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+          .form-group label { font-size: 0.8125rem; color: var(--text-secondary); font-weight: 600; }
+          .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+          .neo-input { background: var(--surface-low); border: 1px solid var(--border); padding: 0.7rem 0.85rem; border-radius: var(--radius-sm); color: var(--text-primary); font-size: 0.875rem; }
+          .neo-input:focus { border-color: var(--accent); outline: none; }
+          .full-width { width: 100%; justify-content: center; margin-top: 0.5rem; }
+
+          /* Import summary */
+          .import-stats { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+          .import-stat { flex: 1; padding: 1.25rem; border-radius: 8px; }
+          .import-stat.success { background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); }
+          .import-stat.error { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
+          .import-stat h3 { font-size: 2rem; margin: 0; }
+          .import-stat.success h3 { color: #10b981; }
+          .import-stat.error h3 { color: #ef4444; }
+          .import-stat span { font-size: 0.8125rem; color: var(--text-muted); }
+          .import-details { max-height: 350px; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; }
+          .failed-list h4, .success-list h4 { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; font-size: 0.875rem; }
+          .failed-list h4 { color: #ef4444; }
+          .success-list h4 { color: #10b981; }
+          .failed-list ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+          .failed-item { padding: 0.75rem 1rem; background: var(--surface-high); border-radius: 6px; font-size: 0.8125rem; display: flex; flex-direction: column; gap: 0.25rem; border-left: 3px solid #ef4444; }
+          .failed-item strong { color: var(--text-primary); }
+          .failed-item span { color: var(--text-secondary); }
+          .success-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+          .success-chip { padding: 0.4rem 0.7rem; background: var(--surface-high); border-radius: 20px; font-size: 0.75rem; border: 1px solid var(--border); }
+
+          @media (max-width: 900px) {
+            .page-header { flex-direction: column; align-items: flex-start; gap: 1.25rem; }
+            .header-actions { width: 100%; flex-wrap: wrap; }
+            .search-row { flex-direction: column; align-items: stretch; }
+            .list-header, .list-row { grid-template-columns: 2fr 1fr 1fr 0.7fr; }
+            .col-dept, .col-joined, .col-year { display: none; }
+          }
+          @media (max-width: 600px) {
+            .summary-row { flex-wrap: wrap; }
+            .filter-row { flex-direction: column; align-items: stretch; }
+            .result-count { margin-left: 0; }
           }
         `}</style>
             </div>

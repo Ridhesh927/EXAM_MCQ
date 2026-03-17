@@ -1,13 +1,21 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, BookCheck, ArrowRight, Loader2 } from 'lucide-react';
+import { Clock, BookCheck, ArrowRight, Loader2, BookOpen, FileText, Upload, LogOut, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 import { getToken } from '../../utils/auth';
+import { apiFetch } from '../../utils/api';
+import { clearAuth } from '../../utils/auth';
+import './StudentDashboard.css';
+
+import AvailableExams from './AvailableExams';
+import StudentResults from './StudentResults';
+import InterviewPrepHub from './InterviewPrepHub';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const [exams, setExams] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'available' | 'results' | 'interview'>('available');
   const [examsTaken, setExamsTaken] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -81,36 +89,38 @@ const StudentDashboard = () => {
                 No exams available at the moment. Check back soon!
               </div>
             ) : (
-              exams.slice(0, 2).map((exam, i) => (
-                <motion.div
-                  key={exam.id}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.4 + (i * 0.1) }}
-                  className="neo-card exam-card-horizontal"
-                >
-                  <div className="exam-info">
-                    <span className="subject-tag">{exam.subject}</span>
-                    <h3>{exam.title}</h3>
-                    <p className="text-muted">{exam.instructions || `${exam.question_count || 0} questions · ${exam.total_marks} marks`}</p>
-                  </div>
-                  <div className="exam-meta">
-                    <div className="meta-item">
-                      <Clock size={16} />
-                      <span>{exam.duration} Minutes</span>
-                    </div>
-                    <button
-                      className="neo-btn-primary"
-                      onClick={() => navigate(`/student/exam/${exam.id}`)}
-                    >
-                      Initiate
-                    </button>
-                  </div>
-                </motion.div>
-              ))
+              <>
+                {activeTab === 'available' && <AvailableExams />}
+                {activeTab === 'results' && <StudentResults />}
+                {activeTab === 'interview' && <InterviewPrepHub />}
+              </>
             )}
           </div>
         </section>
+
+        <nav className="dashboard-nav">
+            <button 
+                className={`nav-btn ${activeTab === 'available' ? 'active' : ''}`}
+                onClick={() => setActiveTab('available')}
+            >
+                <BookOpen size={20} />
+                Available Exams
+            </button>
+            <button 
+                className={`nav-btn ${activeTab === 'results' ? 'active' : ''}`}
+                onClick={() => setActiveTab('results')}
+            >
+                <FileText size={20} />
+                My Results
+            </button>
+            <button 
+                className={`nav-btn ${activeTab === 'interview' ? 'active' : ''}`}
+                onClick={() => setActiveTab('interview')}
+            >
+                <Sparkles size={20} />
+                Interview Prep
+            </button>
+        </nav>
 
         <style>{`
           .dashboard-page {

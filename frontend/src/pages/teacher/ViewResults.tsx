@@ -39,10 +39,10 @@ const ViewResults = () => {
     const calculateStats = (data: any[]) => {
         if (data.length === 0) return;
 
-        const totalScore = data.reduce((acc, curr) => acc + (curr.score / curr.total_questions * 100), 0);
+        const totalScore = data.reduce((acc, curr) => acc + (curr.score / (curr.total_marks || 1) * 100), 0);
         const avgScore = Math.round(totalScore / data.length);
 
-        const distinctionCount = data.filter(r => (r.score / r.total_questions) >= 0.75).length;
+        const distinctionCount = data.filter(r => (r.score / (r.total_marks || 1)) >= 0.75).length;
         const distinctionRate = Math.round((distinctionCount / data.length) * 100);
 
         setStats({
@@ -130,8 +130,8 @@ const ViewResults = () => {
                             </thead>
                             <tbody>
                                 {results.map((res) => {
-                                    const percentage = Math.round((res.score / res.total_questions) * 100);
-                                    const status = getStatus(res.score, res.total_questions);
+                                    const percentage = Math.round((res.score / (res.total_marks || 1)) * 100);
+                                    const status = getStatus(res.score, res.total_marks || 1);
 
                                     return (
                                         <tr key={res.id}>
@@ -201,6 +201,9 @@ const ViewResults = () => {
           
           .icon-btn-text { background: none; color: var(--accent); font-size: 0.8125rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; transition: var(--transition-fast); }
           .icon-btn-text:hover { gap: 0.75rem; }
+           
+          .loading-state, .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem 2rem; color: var(--text-muted); gap: 1rem; text-align: center; }
+          .empty-state p { font-size: 1rem; color: var(--text-secondary); margin: 0; }
         `}</style>
             </div>
         </DashboardLayout>

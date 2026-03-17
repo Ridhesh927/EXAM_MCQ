@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS students (
     email VARCHAR(255) UNIQUE,
     password VARCHAR(255),
     prn_number VARCHAR(50) NOT NULL UNIQUE,
+    department VARCHAR(255) DEFAULT NULL,
+    year VARCHAR(50) DEFAULT NULL,
+    is_blocked BOOLEAN DEFAULT FALSE,
+    resume_text LONGTEXT DEFAULT NULL,
+    parsed_skills JSON DEFAULT NULL,
     last_token TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -40,6 +45,8 @@ CREATE TABLE IF NOT EXISTS exams (
     passing_marks INT NOT NULL,
     instructions TEXT,
     teacher_id INT,
+    target_department VARCHAR(255) DEFAULT NULL,
+    target_year VARCHAR(50) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (teacher_id) REFERENCES teachers (id) ON DELETE CASCADE
 );
@@ -107,4 +114,27 @@ CREATE TABLE IF NOT EXISTS student_responses (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES exam_questions (id) ON DELETE CASCADE
+);
+
+-- AI Intervew Preparation Tables
+
+CREATE TABLE IF NOT EXISTS interviews (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT,
+    job_role_target VARCHAR(255) NOT NULL,
+    total_score INT DEFAULT 0,
+    ai_feedback TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS interview_questions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    interview_id INT,
+    question TEXT NOT NULL,
+    options JSON NOT NULL, -- Array of strings (keeping MCQ format for now)
+    correct_answer VARCHAR(255) NOT NULL, -- The exact text of the correct option
+    student_answer VARCHAR(255) DEFAULT NULL,
+    explanation TEXT,
+    FOREIGN KEY (interview_id) REFERENCES interviews (id) ON DELETE CASCADE
 );

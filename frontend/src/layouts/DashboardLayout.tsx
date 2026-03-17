@@ -42,6 +42,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
   const navItems = userType === 'student' ? [
     { icon: <LayoutDashboard size={20} />, label: 'Overview', path: '/student/dashboard' },
     { icon: <BookOpen size={20} />, label: 'Available Exams', path: '/student/exams' },
+    { icon: <TrendingUp size={20} />, label: 'My Results', path: '/student/results' },
     { icon: <Settings size={20} />, label: 'Settings', path: '/student/settings' },
   ] : [
     { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/teacher/dashboard' },

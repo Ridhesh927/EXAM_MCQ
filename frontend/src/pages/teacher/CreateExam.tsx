@@ -11,18 +11,21 @@ import {
     ChevronRight,
     ChevronLeft,
     Download,
-    Rocket
+    Rocket,
+    Sparkles
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout';
+import AIGeneratorModal from '../../components/AIGeneratorModal';
 
 const CreateExam = () => {
     const navigate = useNavigate();
     const [step, setStep] = useState(1);
     const [isPublishing, setIsPublishing] = useState(false);
     const [publishSuccess, setPublishSuccess] = useState(false);
+    const [showAIModal, setShowAIModal] = useState(false);
     const [examData, setExamData] = useState({
         title: '',
         subject: '',
@@ -129,6 +132,20 @@ const CreateExam = () => {
             });
         };
         reader.readAsBinaryString(file);
+    };
+
+    const handleAddAIQuestions = (newQuestions: any[]) => {
+        setExamData({
+            ...examData,
+            questions: [...examData.questions, ...newQuestions.map((q: any) => ({
+                text: q.question,
+                type: 'MCQ',
+                options: q.options,
+                correct: q.correct_answer === q.options[0] ? 0 :
+                    q.correct_answer === q.options[1] ? 1 :
+                        q.correct_answer === q.options[2] ? 2 : 3
+            }))]
+        });
     };
 
     return (
@@ -280,9 +297,18 @@ const CreateExam = () => {
                                         </div>
                                     ))}
 
-                                    <button className="add-q-btn" onClick={addQuestion}>
-                                        <Plus size={20} /> Add New Inquiry
-                                    </button>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                        <button className="add-q-btn" onClick={addQuestion}>
+                                            <Plus size={20} /> Add New Inquiry
+                                        </button>
+                                        <button
+                                            className="add-q-btn"
+                                            style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                                            onClick={() => setShowAIModal(true)}
+                                        >
+                                            <Sparkles size={20} /> Generate with AI
+                                        </button>
+                                    </div>
 
                                     <div className="bulk-import-container">
                                         <div className="bulk-import-lite">
@@ -366,6 +392,12 @@ const CreateExam = () => {
                         </button>
                     </footer>
                 </main>
+
+                <AIGeneratorModal
+                    isOpen={showAIModal}
+                    onClose={() => setShowAIModal(false)}
+                    onAddQuestions={handleAddAIQuestions}
+                />
 
                 <style>{`
           .create-exam-page { display: flex; flex-direction: column; gap: 2.5rem; max-width: 1000px; margin: 0 auto; }
