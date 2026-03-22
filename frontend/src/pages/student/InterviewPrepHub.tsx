@@ -43,10 +43,23 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
         fetchDashboardData();
     }, []);
 
+    // Re-fetch when switching to History or Analytics tab so new sessions always appear
+    useEffect(() => {
+        if (activeTab === 'history' || activeTab === 'analytics') {
+            fetchDashboardData();
+        }
+    }, [activeTab]);
+
     const fetchDashboardData = async () => {
         setIsLoading(true);
         try {
-            const response = await apiFetch('/api/interview/history');
+            const response = await apiFetch('/api/interview/history', {
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
             const data = await response.json();
             setInterviews(data.interviews || []);
             setHasResume(data.hasResume);
@@ -289,7 +302,11 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                     {interviews.length > 0 ? (
                                         <div className="mini-stat">
                                             <span>{interviews[0].job_role_target}</span>
-                                            <span className="text-accent font-bold">{interviews[0].total_score}%</span>
+                                            {interviews[0].ai_feedback ? (
+                                                <span className="text-accent font-bold">{interviews[0].total_score}%</span>
+                                            ) : (
+                                                <span className="font-bold" style={{ color: '#eab308' }}>In Progress</span>
+                                            )}
                                         </div>
                                     ) : (
                                         <p className="text-muted italic">No sessions yet. Upload your CV to start!</p>
@@ -323,10 +340,17 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                                     <h4>{interview.job_role_target}</h4>
                                                     <span className="date">{new Date(interview.created_at).toLocaleDateString()}</span>
                                                 </div>
-                                                <div className={`score-stat ${interview.total_score >= 70 ? 'good' : 'warning'}`}>
-                                                    <span className="score">{interview.total_score}%</span>
-                                                    <span className="label">Score</span>
-                                                </div>
+                                                {interview.ai_feedback ? (
+                                                    <div className={`score-stat ${interview.total_score >= 70 ? 'good' : 'warning'}`}>
+                                                        <span className="score">{interview.total_score}%</span>
+                                                        <span className="label">Score</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="score-stat" style={{ color: '#eab308', borderColor: '#eab308' }}>
+                                                        <span className="score" style={{ fontSize: '0.75rem' }}>In Progress</span>
+                                                        <span className="label">Resume</span>
+                                                    </div>
+                                                )}
                                             </div>
                                             <button className="expand-toggle">
                                                 {expandedInterview === interview.id ? '-' : '+'}

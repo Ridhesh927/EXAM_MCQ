@@ -326,7 +326,14 @@ exports.getInterviews = async (req, res) => {
         // Include resume status
         const [student] = await pool.query('SELECT resume_text, parsed_skills FROM students WHERE id = ?', [studentId]);
         const hasResume = !!student[0]?.resume_text;
-        const parsedSkills = student[0]?.parsed_skills ? JSON.parse(student[0].parsed_skills) : [];
+        
+        // MySQL 2 automatically parses JSON columns. Handle both string and pre-parsed array:
+        let parsedSkills = [];
+        if (student[0]?.parsed_skills) {
+            parsedSkills = typeof student[0].parsed_skills === 'string' 
+                ? JSON.parse(student[0].parsed_skills) 
+                : student[0].parsed_skills;
+        }
 
         res.status(200).json({ interviews, hasResume, parsedSkills });
     } catch (error) {
