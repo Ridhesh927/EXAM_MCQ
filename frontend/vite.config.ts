@@ -7,6 +7,12 @@ export default defineConfig({
   define: {
     global: 'window',
   },
+  resolve: {
+    alias: {
+      events: 'events',
+      util: 'util',
+    },
+  },
   server: {
     proxy: {
       '/api': {

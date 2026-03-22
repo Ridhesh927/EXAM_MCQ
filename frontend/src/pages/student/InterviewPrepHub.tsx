@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, FileText, ImageIcon, Loader2, Sparkles, CheckCircle, Clock } from 'lucide-react';
+import { Upload, Loader2, Sparkles, CheckCircle, Clock, BarChart3, ArrowRight } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import { getToken } from '../../utils/auth';
 import './InterviewPrepHub.css';
 import { useNavigate } from 'react-router-dom';
+import DashboardLayout from '../../layouts/DashboardLayout';
+
+interface InterviewPrepHubProps {
+    standalone?: boolean;
+}
 
 interface Interview {
     id: number;
@@ -13,7 +19,7 @@ interface Interview {
     created_at: string;
 }
 
-const InterviewPrepHub = () => {
+const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
     const navigate = useNavigate();
     const [interviews, setInterviews] = useState<Interview[]>([]);
     const [hasResume, setHasResume] = useState(false);
@@ -21,14 +27,17 @@ const InterviewPrepHub = () => {
     const [isLoading, setIsLoading] = useState(true);
     
     // Upload State
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Generation State
     const [targetRole, setTargetRole] = useState('');
+    const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [activeTab, setActiveTab] = useState<'practice' | 'history' | 'analytics'>('practice');
+    const [expandedInterview, setExpandedInterview] = useState<number | null>(null);
 
     useEffect(() => {
         fetchDashboardData();
@@ -37,7 +46,8 @@ const InterviewPrepHub = () => {
     const fetchDashboardData = async () => {
         setIsLoading(true);
         try {
-            const data = await apiFetch('/api/interview/history');
+            const response = await apiFetch('/api/interview/history');
+            const data = await response.json();
             setInterviews(data.interviews || []);
             setHasResume(data.hasResume);
             setParsedSkills(data.parsedSkills || []);
@@ -63,7 +73,6 @@ const InterviewPrepHub = () => {
             }
             
             setUploadError('');
-            setSelectedFile(file);
             await uploadResume(file);
         }
     };
@@ -74,8 +83,8 @@ const InterviewPrepHub = () => {
         formData.append('file', file);
 
         try {
-            const token = localStorage.getItem('student_token');
-            const response = await fetch('/api/interview/upload-resume', {
+            const token = getToken();
+            const response = await fetch('http://localhost:5000/api/interview/upload-resume', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
                 body: formData
@@ -86,9 +95,6 @@ const InterviewPrepHub = () => {
 
             setHasResume(true);
             setParsedSkills(data.skills || []);
-            setSelectedFile(null);
-            
-            // Optional: User-friendly toast here
         } catch (error: any) {
             setUploadError(error.message);
         } finally {
@@ -101,10 +107,12 @@ const InterviewPrepHub = () => {
         
         setIsGenerating(true);
         try {
-            const data = await apiFetch('/api/interview/generate', {
+            const response = await apiFetch('/api/interview/generate', {
                 method: 'POST',
-                body: JSON.stringify({ jobRoleTarget: targetRole })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jobRoleTarget: targetRole, difficulty })
             });
+            const data = await response.json();
             
             // Navigate directly to the new interview, or refresh list
             if (data.interviewId) {
@@ -124,7 +132,7 @@ const InterviewPrepHub = () => {
         return <div className="loading-state"><Loader2 className="animate-spin" size={32} /></div>;
     }
 
-    return (
+    const content = (
         <motion.div 
             className="interview-hub-container"
             initial={{ opacity: 0, y: 20 }}
@@ -132,148 +140,274 @@ const InterviewPrepHub = () => {
             transition={{ duration: 0.5 }}
         >
             <div className="hub-header">
-                <h1>AI Interview Preparation</h1>
-                <p>Upload your CV and practice personalized technical interviews tailored to your target role.</p>
+                <h1>Interview Preparation Hub</h1>
+                <p>Master your interview skills with AI-powered personalized sessions.</p>
             </div>
 
-            <div className="hub-grid">
-                {/* Let Sidebar: Resume & config */}
-                <div className="hub-sidebar">
-                    <div className="card profile-card">
-                        <h3>Your Resume Profile</h3>
-                        
-                        {hasResume ? (
-                            <div className="resume-active">
-                                <div className="status-badge success">
-                                    <CheckCircle size={16} /> Resume Processed
-                                </div>
+            <div className="hub-tabs">
+                <button 
+                    className={`hub-tab ${activeTab === 'practice' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('practice')}
+                >
+                    <Sparkles size={18} /> Practice
+                </button>
+                <button 
+                    className={`hub-tab ${activeTab === 'history' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('history')}
+                >
+                    <Clock size={18} /> History
+                </button>
+                <button 
+                    className={`hub-tab ${activeTab === 'analytics' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('analytics')}
+                >
+                    <BarChart3 size={18} /> Insights
+                </button>
+            </div>
+
+            <div className="hub-content-area">
+                {activeTab === 'practice' && (
+                    <div className="practice-view-grid animate-fade-in">
+                        <div className="hub-sidebar">
+                            <div className="card profile-card">
+                                <h3>Your Resume Profile</h3>
                                 
-                                {parsedSkills.length > 0 && (
-                                    <div className="skills-container">
-                                        <h4>Detected Skills:</h4>
-                                        <div className="skills-tags">
-                                            {parsedSkills.map((skill, i) => (
-                                                <span key={i} className="skill-tag">{skill}</span>
+                                {hasResume ? (
+                                    <div className="resume-active">
+                                        <div className="status-badge success">
+                                            <CheckCircle size={16} /> Resume Processed
+                                        </div>
+                                        
+                                        {parsedSkills.length > 0 && (
+                                            <div className="skills-container">
+                                                <h4>Detected Skills:</h4>
+                                                <div className="skills-tags">
+                                                    {parsedSkills.map((skill, i) => (
+                                                        <span key={i} className="skill-tag">{skill}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        <button 
+                                            className="neo-btn-secondary text-sm mt-4"
+                                            onClick={() => fileInputRef.current?.click()}
+                                            disabled={isUploading}
+                                        >
+                                            {isUploading ? <Loader2 className="animate-spin" size={16} /> : 'Update Resume'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="resume-upload">
+                                        <p>Upload your latest CV to let the AI analyze your background.</p>
+                                        <div 
+                                            className="upload-zone"
+                                            onClick={() => fileInputRef.current?.click()}
+                                        >
+                                            {isUploading ? (
+                                                <Loader2 className="animate-spin" size={32} />
+                                            ) : (
+                                                <>
+                                                    <Upload size={32} />
+                                                    <span>Click to upload PDF/Image</span>
+                                                </>
+                                            )}
+                                        </div>
+                                        {uploadError && <p className="error-text">{uploadError}</p>}
+                                    </div>
+                                )}
+
+                                <input 
+                                    type="file" 
+                                    ref={fileInputRef} 
+                                    onChange={handleFileChange} 
+                                    accept=".pdf,image/*" 
+                                    style={{ display: 'none' }}
+                                />
+                            </div>
+
+                            {hasResume && (
+                                <div className="card generate-card">
+                                    <h3>Start New Mock Interview</h3>
+                                    <div className="form-group">
+                                        <label>Target Job Role</label>
+                                        <input 
+                                            type="text" 
+                                            className="neo-input"
+                                            placeholder="e.g. Full Stack Developer"
+                                            value={targetRole}
+                                            onChange={(e) => setTargetRole(e.target.value)}
+                                            disabled={isGenerating}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Difficulty Level</label>
+                                        <div className="difficulty-selector">
+                                            {(['easy', 'medium', 'hard'] as const).map(level => (
+                                                <button
+                                                    key={level}
+                                                    className={`diff-btn diff-btn--${level} ${difficulty === level ? 'active' : ''}`}
+                                                    onClick={() => setDifficulty(level)}
+                                                    disabled={isGenerating}
+                                                >
+                                                    {level === 'easy' && '🟢'}
+                                                    {level === 'medium' && '🟡'}
+                                                    {level === 'hard' && '🔴'}
+                                                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                                                </button>
                                             ))}
                                         </div>
                                     </div>
-                                )}
-                                
-                                <button 
-                                    className="neo-btn-secondary text-sm mt-4"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    disabled={isUploading}
-                                >
-                                    {isUploading ? <Loader2 className="animate-spin" size={16} /> : 'Update Resume'}
-                                </button>
+                                    <button 
+                                        className="neo-btn-primary full-width mt-4"
+                                        onClick={handleGenerate}
+                                        disabled={isGenerating || !targetRole.trim()}
+                                    >
+                                        {isGenerating ? (
+                                            <><Loader2 className="animate-spin" size={18} /> Building your {difficulty} interview...</>
+                                        ) : (
+                                            <><Sparkles size={18} /> Generate 20-Question Session</>
+                                        )}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="practice-info-panel card glass-card">
+                            <h3>Preparation Insights</h3>
+                            <div className="info-content">
+                                <p>Welcome back! Our AI has analyzed your profile and detected <strong>{parsedSkills.length} core technical skills</strong>.</p>
+                                <div className="tip-box">
+                                    <Sparkles size={20} className="text-accent" />
+                                    <div>
+                                        <strong>Pro Tip:</strong>
+                                        <p>Tailor your "Target Job Role" to the specific position you're applying for. The AI will generate 20 custom questions (5 DSA, 5 Logical, 5 Verbal, 5 Technical) based on that role and your CV.</p>
+                                    </div>
+                                </div>
+                                <div className="session-summary mt-8">
+                                    <h4>Your Last Session</h4>
+                                    {interviews.length > 0 ? (
+                                        <div className="mini-stat">
+                                            <span>{interviews[0].job_role_target}</span>
+                                            <span className="text-accent font-bold">{interviews[0].total_score}%</span>
+                                        </div>
+                                    ) : (
+                                        <p className="text-muted italic">No sessions yet. Upload your CV to start!</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'history' && (
+                    <div className="history-view animate-fade-in">
+                        <div className="history-header">
+                            <h2>Session History</h2>
+                            <p>Review your past performances and AI feedback.</p>
+                        </div>
+
+                        {interviews.length === 0 ? (
+                            <div className="empty-history card">
+                                <Clock size={48} />
+                                <p>No interview sessions found.</p>
+                                <button className="neo-btn-primary mt-4" onClick={() => setActiveTab('practice')}>Start Your First Session</button>
                             </div>
                         ) : (
-                            <div className="resume-upload">
-                                <p>Upload your latest CV to let the AI analyze your background.</p>
-                                <div 
-                                    className="upload-zone"
-                                    onClick={() => fileInputRef.current?.click()}
-                                >
-                                    {isUploading ? (
-                                        <Loader2 className="animate-spin" size={32} />
-                                    ) : (
-                                        <>
-                                            <Upload size={32} />
-                                            <span>Click to upload PDF/Image</span>
-                                        </>
-                                    )}
-                                </div>
-                                {uploadError && <p className="error-text">{uploadError}</p>}
-                            </div>
-                        )}
-
-                        <input 
-                            type="file" 
-                            ref={fileInputRef} 
-                            onChange={handleFileChange} 
-                            accept=".pdf,image/*" 
-                            style={{ display: 'none' }}
-                        />
-                    </div>
-
-                    {hasResume && (
-                        <div className="card generate-card">
-                            <h3>Start New Mock Interview</h3>
-                            <div className="form-group">
-                                <label>Target Job Role</label>
-                                <input 
-                                    type="text" 
-                                    className="neo-input"
-                                    placeholder="e.g. Full Stack Developer, Data Analyst"
-                                    value={targetRole}
-                                    onChange={(e) => setTargetRole(e.target.value)}
-                                    disabled={isGenerating}
-                                />
-                            </div>
-                            <button 
-                                className="neo-btn-primary full-width mt-4"
-                                onClick={handleGenerate}
-                                disabled={isGenerating || !targetRole.trim()}
-                            >
-                                {isGenerating ? (
-                                    <><Loader2 className="animate-spin" size={18} /> Building Interview...</>
-                                ) : (
-                                    <><Sparkles size={18} /> Generate 15-Min Interview</>
-                                )}
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                {/* Right Area: History */}
-                <div className="hub-main card">
-                    <h3>Your Interview History</h3>
-                    
-                    {interviews.length === 0 ? (
-                        <div className="empty-history">
-                            <Clock size={48} />
-                            <p>You haven't taken any mock interviews yet.</p>
-                            {hasResume ? <span>Generate one using the panel on the left!</span> : <span>Upload your resume to get started.</span>}
-                        </div>
-                    ) : (
-                        <div className="interviews-list">
-                            {interviews.map(interview => (
-                                <div key={interview.id} className="interview-item">
-                                    <div className="interview-header">
-                                        <h4>{interview.job_role_target}</h4>
-                                        <span className="date">{new Date(interview.created_at).toLocaleDateString()}</span>
-                                    </div>
-                                    <div className="interview-stats">
-                                        <div className="stat">
-                                            <span className="label">Score</span>
-                                            <span className={`value ${interview.total_score >= 70 ? 'good' : 'warning'}`}>
-                                                {interview.total_score}%
-                                            </span>
+                            <div className="history-list">
+                                {interviews.map(interview => (
+                                    <div key={interview.id} className={`history-card card ${expandedInterview === interview.id ? 'expanded' : ''}`}>
+                                        <div className="card-header" onClick={() => setExpandedInterview(expandedInterview === interview.id ? null : interview.id)}>
+                                            <div className="interview-info">
+                                                <div className="role-title">
+                                                    <h4>{interview.job_role_target}</h4>
+                                                    <span className="date">{new Date(interview.created_at).toLocaleDateString()}</span>
+                                                </div>
+                                                <div className={`score-stat ${interview.total_score >= 70 ? 'good' : 'warning'}`}>
+                                                    <span className="score">{interview.total_score}%</span>
+                                                    <span className="label">Score</span>
+                                                </div>
+                                            </div>
+                                            <button className="expand-toggle">
+                                                {expandedInterview === interview.id ? '-' : '+'}
+                                            </button>
                                         </div>
-                                        <div className="status">
-                                            {interview.ai_feedback ? 'Completed & Evaluated' : 'Pending/Saved'}
-                                        </div>
-                                    </div>
-                                    {interview.ai_feedback && (
-                                        <div className="feedback-snippet">
-                                            {interview.ai_feedback.substring(0, 150)}...
-                                        </div>
-                                    )}
-                                    <div className="actions">
-                                        {interview.ai_feedback ? (
-                                             <button className="neo-btn-secondary text-sm" onClick={() => navigate(`/student/interview/result/${interview.id}`)}>View Full Report</button>
-                                        ) : (
-                                             <button className="neo-btn-primary text-sm" onClick={() => navigate(`/student/interview/${interview.id}`)}>Continue Interview</button>
+
+                                        {expandedInterview === interview.id && (
+                                            <motion.div 
+                                                initial={{ opacity: 0, height: 0 }}
+                                                animate={{ opacity: 1, height: 'auto' }}
+                                                className="expanded-content"
+                                            >
+                                                <div className="feedback-preview">
+                                                    <h5>AI Feedback Summary</h5>
+                                                    <p>{interview.ai_feedback || "No feedback generated yet."}</p>
+                                                </div>
+                                                <div className="actions mt-4">
+                                                    {interview.ai_feedback ? (
+                                                        <button 
+                                                            className="neo-btn-primary text-sm"
+                                                            onClick={() => navigate(`/student/interview/result/${interview.id}`)}
+                                                        >
+                                                            View Full Performance Breakdown <ArrowRight size={16} />
+                                                        </button>
+                                                    ) : (
+                                                        <button 
+                                                            className="neo-btn-primary text-sm"
+                                                            onClick={() => navigate(`/student/interview/${interview.id}`)}
+                                                        >
+                                                            Continue Session <ArrowRight size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </motion.div>
                                         )}
                                     </div>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'analytics' && (
+                    <div className="analytics-view animate-fade-in card glass-card">
+                        <div className="analytics-header">
+                            <BarChart3 size={32} className="text-accent" />
+                            <h2>Performance Insights</h2>
                         </div>
-                    )}
-                </div>
+                        <div className="stats-summary-grid">
+                            <div className="stat-box">
+                                <span className="label">Cumulative Avg</span>
+                                <span className="value">
+                                    {interviews.length > 0 
+                                        ? Math.round(interviews.reduce((acc, i) => acc + i.total_score, 0) / interviews.length)
+                                        : 0}%
+                                </span>
+                            </div>
+                            <div className="stat-box">
+                                <span className="label">Sessions Taken</span>
+                                <span className="value">{interviews.length}</span>
+                            </div>
+                            <div className="stat-box">
+                                <span className="label">Top Performance</span>
+                                <span className="value">
+                                    {interviews.length > 0 ? Math.max(...interviews.map(i => i.total_score)) : 0}%
+                                </span>
+                            </div>
+                        </div>
+                        <div className="insight-message mt-8">
+                            <Sparkles size={20} className="text-accent" />
+                            <p>You've completed <strong>{interviews.length} practice sessions</strong>. Your strongest skills appear to be consistent with the <strong>{parsedSkills[0] || 'technical'}</strong> domain.</p>
+                        </div>
+                    </div>
+                )}
             </div>
         </motion.div>
     );
+
+    return standalone ? (
+        <DashboardLayout userType="student">{content}</DashboardLayout>
+    ) : content;
 };
 
 export default InterviewPrepHub;

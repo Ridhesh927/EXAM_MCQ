@@ -33,10 +33,19 @@ const CreateExam = () => {
         passingMarks: 40,
         target_department: '',
         target_year: '',
+        expires_at: '',
         questions: [] as any[]
     });
 
-    const nextStep = () => setStep(s => s + 1);
+    const nextStep = () => {
+        if (step === 1) {
+            if (!examData.title || !examData.subject || !examData.duration || !examData.expires_at) {
+                alert('Please fill out all mandatory fields: Title, Subject, Duration, and Expiration Date.');
+                return;
+            }
+        }
+        setStep(s => s + 1);
+    };
     const prevStep = () => setStep(s => s - 1);
 
     const addQuestion = () => {
@@ -82,6 +91,7 @@ const CreateExam = () => {
                 instructions: 'Please read all questions carefully before answering.',
                 target_department: examData.target_department || null,
                 target_year: examData.target_year || null,
+                expires_at: examData.expires_at,
                 questions: examData.questions.map(q => ({
                     question: q.text,
                     options: q.options,
@@ -240,6 +250,17 @@ const CreateExam = () => {
                                             <option>Third Year</option>
                                             <option>Fourth Year</option>
                                         </select>
+                                    </div>
+                                    <div className="form-group span-2">
+                                        <label>Expiration Date & Time <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <input
+                                            type="datetime-local"
+                                            className="neo-input"
+                                            required
+                                            value={examData.expires_at}
+                                            onChange={(e) => setExamData({ ...examData, expires_at: e.target.value })}
+                                        />
+                                        <small style={{ color: 'var(--text-muted)' }}>Students will not be able to access the exam after this time.</small>
                                     </div>
                                 </div>
                             </motion.div>

@@ -1,22 +1,19 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, BookCheck, ArrowRight, Loader2, BookOpen, FileText, Upload, LogOut, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
+import { BookCheck, ArrowRight, Loader2 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 import { getToken } from '../../utils/auth';
-import { apiFetch } from '../../utils/api';
-import { clearAuth } from '../../utils/auth';
 import './StudentDashboard.css';
 
 import AvailableExams from './AvailableExams';
-import StudentResults from './StudentResults';
-import InterviewPrepHub from './InterviewPrepHub';
+
+
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const [exams, setExams] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'available' | 'results' | 'interview'>('available');
-  const [examsTaken, setExamsTaken] = useState(0);
+
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -90,37 +87,13 @@ const StudentDashboard = () => {
               </div>
             ) : (
               <>
-                {activeTab === 'available' && <AvailableExams />}
-                {activeTab === 'results' && <StudentResults />}
-                {activeTab === 'interview' && <InterviewPrepHub />}
+                <AvailableExams standalone={false} />
               </>
             )}
           </div>
         </section>
 
-        <nav className="dashboard-nav">
-            <button 
-                className={`nav-btn ${activeTab === 'available' ? 'active' : ''}`}
-                onClick={() => setActiveTab('available')}
-            >
-                <BookOpen size={20} />
-                Available Exams
-            </button>
-            <button 
-                className={`nav-btn ${activeTab === 'results' ? 'active' : ''}`}
-                onClick={() => setActiveTab('results')}
-            >
-                <FileText size={20} />
-                My Results
-            </button>
-            <button 
-                className={`nav-btn ${activeTab === 'interview' ? 'active' : ''}`}
-                onClick={() => setActiveTab('interview')}
-            >
-                <Sparkles size={20} />
-                Interview Prep
-            </button>
-        </nav>
+
 
         <style>{`
           .dashboard-page {

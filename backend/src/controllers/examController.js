@@ -5,8 +5,12 @@ const logger = require('../utils/logger');
 // Create Exam
 exports.createExam = async (req, res) => {
     try {
-        const { title, subject, duration, total_marks, passing_marks, instructions, questions, target_department, target_year, status, scheduled_start } = req.body;
+        const { title, subject, duration, total_marks, passing_marks, instructions, questions, target_department, target_year, status, scheduled_start, expires_at } = req.body;
         const teacher_id = req.user.id;
+
+        if (!expires_at) {
+            return res.status(400).json({ error: 'Expiration date (expires_at) is required.' });
+        }
 
         // Start transaction
         const connection = await pool.getConnection();
@@ -20,8 +24,8 @@ exports.createExam = async (req, res) => {
             }
 
             const [examResult] = await connection.query(
-                'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department, target_year, status, scheduled_start) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [title, subject, duration, finalTotalMarks, passing_marks, instructions, teacher_id, target_department || null, target_year || null, status || 'Published', scheduled_start || null]
+                'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department, target_year, status, scheduled_start, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [title, subject, duration, finalTotalMarks, passing_marks, instructions, teacher_id, target_department || null, target_year || null, status || 'Published', scheduled_start || null, expires_at]
             );
 
             const examId = examResult.insertId;
@@ -108,8 +112,12 @@ exports.getTeacherExamDetails = async (req, res) => {
 exports.updateExam = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, subject, duration, passing_marks, target_department, target_year, status, questions } = req.body;
+        const { title, subject, duration, passing_marks, target_department, target_year, status, questions, expires_at } = req.body;
         const teacher_id = req.user.id;
+
+        if (!expires_at) {
+            return res.status(400).json({ error: 'Expiration date (expires_at) is required.' });
+        }
 
         // Verify ownership
         const [authCheck] = await pool.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [id, teacher_id]);
@@ -122,8 +130,8 @@ exports.updateExam = async (req, res) => {
             const calculatedTotalMarks = questions.reduce((sum, q) => sum + (q.marks !== undefined ? q.marks : 5), 0);
 
             await connection.query(
-                'UPDATE exams SET title=?, subject=?, duration=?, total_marks=?, passing_marks=?, target_department=?, target_year=?, status=? WHERE id=?',
-                [title, subject, duration, calculatedTotalMarks, passing_marks, target_department || null, target_year || null, status || 'Draft', id]
+                'UPDATE exams SET title=?, subject=?, duration=?, total_marks=?, passing_marks=?, target_department=?, target_year=?, status=?, expires_at=? WHERE id=?',
+                [title, subject, duration, calculatedTotalMarks, passing_marks, target_department || null, target_year || null, status || 'Draft', expires_at, id]
             );
 
             // For simplicity: clear student_responses first to avoid foreign key errors, then delete old questions and insert new ones
@@ -229,13 +237,14 @@ exports.getAvailableExams = async (req, res) => {
         }
 
         const [rows] = await pool.query(
-            `SELECT e.id, e.title, e.subject, e.duration, e.total_marks, e.passing_marks, e.instructions, e.status, e.scheduled_start,
+            `SELECT e.id, e.title, e.subject, e.duration, e.total_marks, e.passing_marks, e.instructions, e.status, e.scheduled_start, e.expires_at,
              e.target_department, e.target_year,
              (SELECT COUNT(*) FROM exam_questions WHERE exam_id = e.id) as question_count
              FROM exams e
              WHERE e.status IN ('Published', 'Scheduled')
              AND ${deptCondition}
              AND ${yearCondition}
+             AND e.expires_at > NOW()
              AND NOT EXISTS (
                  SELECT 1 FROM exam_results er WHERE er.exam_id = e.id AND er.student_id = ?
              )
@@ -277,6 +286,14 @@ exports.getExamDetails = async (req, res) => {
             const start = new Date(exam.scheduled_start);
             if (now < start) {
                 return res.status(403).json({ message: `Exam is scheduled to start at ${exam.scheduled_start}` });
+            }
+        }
+
+        if (exam.expires_at) {
+            const now = new Date();
+            const expiresAt = new Date(exam.expires_at);
+            if (now >= expiresAt) {
+                return res.status(403).json({ message: 'This exam has expired.' });
             }
         }
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Loader2, ArrowRight, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Loader2, ArrowRight, ArrowLeft, CheckCircle, Flag } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import ConfirmModal from '../../components/ConfirmModal';
 import './TakeInterview.css';
 
 interface Question {
@@ -28,7 +29,9 @@ const TakeInterview = () => {
     
     const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
     const [answers, setAnswers] = useState<Record<number, string>>({});
+    const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
 
     useEffect(() => {
         fetchInterviewData();
@@ -36,7 +39,11 @@ const TakeInterview = () => {
 
     const fetchInterviewData = async () => {
         try {
-            const data = await apiFetch(`/api/interview/${id}`);
+            const response = await apiFetch(`/api/interview/${id}`);
+            const data = await response.json();
+            
+            if (!response.ok) throw new Error(data.message || 'Failed to load interview');
+            
             setInterview(data.interview);
             setQuestions(data.questions || []);
             
@@ -58,6 +65,15 @@ const TakeInterview = () => {
         setAnswers(prev => ({ ...prev, [qId]: option }));
     };
 
+    const toggleMarkForReview = () => {
+        const qId = questions[currentQuestionIdx].id;
+        setMarkedForReview(prev => {
+            const next = new Set(prev);
+            if (next.has(qId)) next.delete(qId); else next.add(qId);
+            return next;
+        });
+    };
+
     const handleNext = () => {
         if (currentQuestionIdx < questions.length - 1) {
             setCurrentQuestionIdx(prev => prev + 1);
@@ -71,14 +87,18 @@ const TakeInterview = () => {
     };
 
     const handleSubmit = async () => {
-        if (!window.confirm("Are you sure you want to completely submit this interview?")) return;
-        
         setIsSubmitting(true);
         try {
-            await apiFetch(`/api/interview/${id}/submit`, {
+            const response = await apiFetch(`/api/interview/${id}/submit`, {
                 method: 'POST',
                 body: JSON.stringify({ answers })
             });
+            
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.message || "Submission failed.");
+            }
+            
             // Go to results page
             navigate(`/student/interview/result/${id}`);
         } catch (error: any) {
@@ -164,11 +184,19 @@ const TakeInterview = () => {
                         >
                             <ArrowLeft size={18} /> Previous
                         </button>
+
+                        <button
+                            className={`mark-review-btn ${markedForReview.has(currentQ.id) ? 'marked' : ''}`}
+                            onClick={toggleMarkForReview}
+                        >
+                            <Flag size={16} />
+                            {markedForReview.has(currentQ.id) ? 'Unmark Review' : 'Mark for Review'}
+                        </button>
                         
                         {isLastQuestion ? (
                             <button 
                                 className="neo-btn-primary submit-pulse" 
-                                onClick={handleSubmit}
+                                onClick={() => setShowConfirmModal(true)}
                                 disabled={isSubmitting}
                             >
                                 {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : 'Submit Final Interview'}
@@ -184,23 +212,68 @@ const TakeInterview = () => {
                 {/* Sidebar Navigation */}
                 <aside className="question-nav-sidebar">
                     <h3>Question Map</h3>
-                    <div className="question-grid">
-                        {questions.map((q, idx) => {
-                            const isAnswered = !!answers[q.id];
-                            const isActive = currentQuestionIdx === idx;
-                            return (
-                                <button 
-                                    key={q.id}
-                                    className={`nav-dot ${isAnswered ? 'answered' : ''} ${isActive ? 'active' : ''}`}
-                                    onClick={() => setCurrentQuestionIdx(idx)}
-                                >
-                                    {idx + 1}
-                                </button>
-                            );
-                        })}
+
+                    {[
+                        { label: 'DSA', color: '#6366f1', start: 0, end: 5 },
+                        { label: 'Logical', color: '#06b6d4', start: 5, end: 10 },
+                        { label: 'Verbal', color: '#8b5cf6', start: 10, end: 15 },
+                        { label: 'Technical', color: '#d97706', start: 15, end: 20 },
+                    ].map(section => (
+                        <div key={section.label} className="map-section">
+                            <div className="map-section-label" style={{ color: section.color }}>
+                                {section.label}
+                            </div>
+                            <div className="question-grid">
+                                {questions.slice(section.start, section.end).map((q, localIdx) => {
+                                    const idx = section.start + localIdx;
+                                    const isAnswered = !!answers[q.id];
+                                    const isReview = markedForReview.has(q.id);
+                                    const isActive = currentQuestionIdx === idx;
+                                    let statusClass = '';
+                                    if (isAnswered) statusClass = 'answered';
+                                    if (isReview) statusClass = 'on-hold';
+                                    if (isActive) statusClass += ' active';
+                                    return (
+                                        <button
+                                            key={q.id}
+                                            className={`nav-dot ${statusClass}`}
+                                            onClick={() => setCurrentQuestionIdx(idx)}
+                                            title={isAnswered ? 'Answered' : isReview ? 'Marked for Review' : 'Not Answered'}
+                                        >
+                                            {idx + 1}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+
+                    <div className="map-legend">
+                        <div className="legend-item">
+                            <span className="legend-dot answered"></span>
+                            <span>Answered</span>
+                        </div>
+                        <div className="legend-item">
+                            <span className="legend-dot on-hold"></span>
+                            <span>On Hold</span>
+                        </div>
+                        <div className="legend-item">
+                            <span className="legend-dot"></span>
+                            <span>Unanswered</span>
+                        </div>
                     </div>
                 </aside>
             </div>
+
+            <ConfirmModal
+                isOpen={showConfirmModal}
+                onClose={() => setShowConfirmModal(false)}
+                onConfirm={handleSubmit}
+                title="Submit Interview?"
+                message="Are you sure you want to completely submit this interview? Your answers will be analyzed by AI."
+                confirmText="Yes, Submit"
+                type="primary"
+            />
         </div>
     );
 };

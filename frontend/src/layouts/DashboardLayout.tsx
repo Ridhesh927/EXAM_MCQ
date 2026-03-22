@@ -9,7 +9,8 @@ import {
   Bell,
   ShieldAlert,
   TrendingUp,
-  Settings
+  Settings,
+  Sparkles
 } from 'lucide-react';
 import { getUser, clearAuth } from '../utils/auth';
 
@@ -43,6 +44,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
     { icon: <LayoutDashboard size={20} />, label: 'Overview', path: '/student/dashboard' },
     { icon: <BookOpen size={20} />, label: 'Available Exams', path: '/student/exams' },
     { icon: <TrendingUp size={20} />, label: 'My Results', path: '/student/results' },
+    { icon: <Sparkles size={20} />, label: 'Interview Prep', path: '/student/interview-prep' },
     { icon: <Settings size={20} />, label: 'Settings', path: '/student/settings' },
   ] : [
     { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/teacher/dashboard' },

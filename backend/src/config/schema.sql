@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS exams (
     teacher_id INT,
     target_department VARCHAR(255) DEFAULT NULL,
     target_year VARCHAR(50) DEFAULT NULL,
+    expires_at DATETIME NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (teacher_id) REFERENCES teachers (id) ON DELETE CASCADE
 );

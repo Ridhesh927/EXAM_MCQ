@@ -36,6 +36,7 @@ const EditExam = () => {
         passingMarks: 40,
         target_department: '',
         target_year: '',
+        expires_at: '',
         questions: [] as any[],
         status: 'Draft'
     });
@@ -56,6 +57,7 @@ const EditExam = () => {
                     passingMarks: data.passing_marks || 40,
                     target_department: data.target_department || '',
                     target_year: data.target_year || '',
+                    expires_at: data.expires_at ? new Date(new Date(data.expires_at).getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().slice(0, 16) : '',
                     status: data.status || 'Draft',
                     questions: (data.questions || []).map((q: any) => ({
                         text: q.question,
@@ -77,7 +79,15 @@ const EditExam = () => {
         fetchExamDetails();
     }, [id, navigate]);
 
-    const nextStep = () => setStep(s => s + 1);
+    const nextStep = () => {
+        if (step === 1) {
+            if (!examData.title || !examData.subject || !examData.duration || !examData.expires_at) {
+                alert('Please fill out all mandatory fields: Title, Subject, Duration, and Expiration Date.');
+                return;
+            }
+        }
+        setStep(s => s + 1);
+    };
     const prevStep = () => setStep(s => s - 1);
 
     const addQuestion = () => {
@@ -122,6 +132,7 @@ const EditExam = () => {
                 instructions: 'Please read all questions carefully before answering.',
                 target_department: examData.target_department || null,
                 target_year: examData.target_year || null,
+                expires_at: examData.expires_at,
                 questions: examData.questions.map(q => ({
                     question: q.text,
                     options: q.options,
@@ -289,6 +300,17 @@ const EditExam = () => {
                                             <option>Third Year</option>
                                             <option>Fourth Year</option>
                                         </select>
+                                    </div>
+                                    <div className="form-group span-2">
+                                        <label>Expiration Date & Time <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <input
+                                            type="datetime-local"
+                                            className="neo-input"
+                                            required
+                                            value={examData.expires_at}
+                                            onChange={(e) => setExamData({ ...examData, expires_at: e.target.value })}
+                                        />
+                                        <small style={{ color: 'var(--text-muted)' }}>Students will not be able to access the exam after this time.</small>
                                     </div>
                                 </div>
                             </motion.div>

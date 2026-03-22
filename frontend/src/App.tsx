@@ -8,6 +8,7 @@ import TakeInterview from './pages/student/TakeInterview';
 import InterviewResults from './pages/student/InterviewResults';
 import StudentResults from './pages/student/StudentResults';
 import Settings from './pages/student/Settings';
+import InterviewPrepHub from './pages/student/InterviewPrepHub';
 
 import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import CreateExam from './pages/teacher/CreateExam';
@@ -35,6 +36,7 @@ function App() {
           {/* Student Routes */}
           <Route path="/student/dashboard" element={<StudentDashboard />} />
           <Route path="/student/exams" element={<AvailableExams />} />
+          <Route path="/student/interview-prep" element={<InterviewPrepHub standalone={true} />} />
           <Route path="/student/exam/:id" element={<TakeExam />} />
           <Route path="/student/interview/:id" element={<TakeInterview />} />
           <Route path="/student/interview/result/:id" element={<InterviewResults />} />

@@ -12,8 +12,18 @@ export type Role = 'teacher' | 'student';
 const TOKEN_KEY = (role: Role) => `${role}_token`;
 const USER_KEY = (role: Role) => `${role}_user`;
 
-/** Returns the current role from the stored user object (either role). */
+/** Returns the current role from the URL path first, then falls back to stored user objects. */
 export function getCurrentRole(): Role | null {
+    // Prefer role based on current URL path to avoid cross-role token contamination
+    const path = window.location.pathname;
+    if (path.startsWith('/student')) {
+        if (localStorage.getItem('student_token')) return 'student';
+    }
+    if (path.startsWith('/teacher')) {
+        if (localStorage.getItem('teacher_token')) return 'teacher';
+    }
+
+    // Fallback: check stored user objects
     const teacher = localStorage.getItem('teacher_user');
     if (teacher) {
         try { const u = JSON.parse(teacher); if (u?.role === 'teacher') return 'teacher'; } catch { }

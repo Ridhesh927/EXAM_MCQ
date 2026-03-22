@@ -1,6 +1,6 @@
 const { pool } = require('../config/db');
 const Groq = require('groq-sdk');
-const pdf = require('pdf-parse');
+const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 const logger = require('../utils/logger');
 require('dotenv').config();
@@ -27,14 +27,32 @@ const REFERENCE_DATASETS = {
     3. In a certain code language, '134' means 'good and tasty', '478' means 'see good pictures'. Which digit stands for 'see'?
     Focus on pattern recognition, syllogisms, blood relations, and coding/decoding.
     `,
-    coding: `
-    Examples of Coding/Technical Questions (Varies by role):
-    - Frontend: Explain the Virtual DOM. How does React handle state updates under the hood?
-    - Backend: What is the difference between SQL and NoSQL databases? Explain ACID properties.
-    - Full Stack: How would you design a scalable REST API? Explain JWT authentication flow.
-    - General coding: Write a function to reverse a linked list. What is the time complexity of QuickSort?
-    Focus on technical concepts, system design, and algorithms relevant to the provided CV and role.
-    `
+    // Domain-specific topic mappings. The AI uses this to understand what to ask about for each role.
+    getDomainTopics: (role) => {
+        const r = role.toLowerCase();
+        if (r.includes('web') || r.includes('frontend') || r.includes('front-end') || r.includes('react') || r.includes('vue') || r.includes('angular')) {
+            return 'HTML5, CSS3, JavaScript (ES6+), DOM manipulation, React/Vue/Angular concepts, Responsive Design, Web Performance, HTTP, Browser APIs, REST APIs, Web Security (XSS, CSRF).';
+        } else if (r.includes('backend') || r.includes('back-end') || r.includes('server') || r.includes('node') || r.includes('django') || r.includes('spring')) {
+            return 'Node.js/Python/Java server concepts, REST API design, Database design (SQL & NoSQL), ORM, Authentication (JWT, OAuth), Caching (Redis), Microservices, Message Queues, Docker, CI/CD.';
+        } else if (r.includes('full stack') || r.includes('fullstack')) {
+            return 'HTML/CSS/JS frontend, Node.js/Python backend, REST API design, SQL/NoSQL databases, Authentication (JWT), React or Vue, System design, Docker basics, CI/CD pipelines.';
+        } else if (r.includes('software') || r.includes('sde') || r.includes('swe') || r.includes('software engineer') || r.includes('software developer')) {
+            return 'Data Structures (arrays, linked lists, trees, graphs, heaps), Algorithms (sorting, searching, dynamic programming, greedy), Object-Oriented Programming (encapsulation, inheritance, polymorphism, abstraction), Design Patterns (Singleton, Observer, Factory), System Design concepts (scalability, load balancing, caching), SQL fundamentals, Version Control (Git), Software Development Life Cycle (SDLC), Testing (unit, integration), Time and Space Complexity (Big-O).';
+        } else if (r.includes('data science') || r.includes('machine learning') || r.includes('ml') || r.includes('ai') || r.includes('data analyst')) {
+            return 'Statistics & Probability, Linear Algebra, Machine Learning algorithms (regression, classification, clustering), Python (Pandas, NumPy, Scikit-learn), SQL, Data Visualization, Neural Networks, Feature Engineering, Model Evaluation, Overfitting/Underfitting.';
+        } else if (r.includes('mobile') || r.includes('android') || r.includes('ios') || r.includes('react native') || r.includes('flutter')) {
+            return 'Mobile UI/UX principles, Native APIs (Camera, GPS, Notifications), Local Storage, AsyncStorage, Networking (REST), State Management, Published app lifecycle, Platform specifics (Android/iOS), Performance optimization, App security.';
+        } else if (r.includes('devops') || r.includes('cloud') || r.includes('aws') || r.includes('azure') || r.includes('gcp')) {
+            return 'Linux commands, Docker & Kubernetes, CI/CD pipelines (Jenkins, GitHub Actions), Cloud services (AWS EC2, S3, Lambda, RDS), Infrastructure as Code (Terraform), Monitoring (Prometheus, Grafana), Networking (VPC, DNS, Load Balancers), Security groups.';
+        } else if (r.includes('cyber') || r.includes('security') || r.includes('ethical hacking')) {
+            return 'Network Security (firewalls, VPNs, IDS/IPS), Cryptography (AES, RSA, hashing), OWASP Top 10, Vulnerability assessment, Penetration testing basics, Incident response, Compliance standards (ISO 27001, GDPR), Social engineering.';
+        } else if (r.includes('database') || r.includes('dba') || r.includes('sql')) {
+            return 'SQL (joins, subqueries, indexes, stored procedures, triggers), Database normalization, Transactions & ACID, Query optimization, NoSQL databases (MongoDB, Redis, Cassandra), Database replication, Backup & recovery.';
+        } else {
+            // Generic software role fallback
+            return `Core programming concepts (OOP, SOLID principles), Data Structures & Algorithms, System Design, Databases (SQL/NoSQL), Version Control (Git), Testing, and specific skills relevant to "${role}"`;
+        }
+    }
 };
 
 // 1. Upload and Parse Resume
@@ -53,8 +71,8 @@ exports.uploadResume = async (req, res) => {
         logger('INFO', `Parsing resume for student ${studentId}`, { mimetype });
 
         if (mimetype === 'application/pdf') {
-            const pdfData = await pdf(buffer);
-            resumeText = pdfData.text;
+            const result = await pdfParse(buffer);
+            resumeText = result.text;
         } else if (mimetype.startsWith('image/')) {
             const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
             resumeText = text;
@@ -121,103 +139,162 @@ exports.uploadResume = async (req, res) => {
 exports.generateInterview = async (req, res) => {
     try {
         const studentId = req.user.id;
-        const { jobRoleTarget } = req.body;
+        const { jobRoleTarget, difficulty = 'medium' } = req.body;
 
-        if (!jobRoleTarget) {
-            return res.status(400).json({ message: 'Job role target is required.' });
-        }
+        if (!jobRoleTarget) return res.status(400).json({ error: 'Target job role is required' });
 
-        // Fetch Student Data (Resume, Year)
-        const [studentData] = await pool.query(
+        // Map difficulty to specific AI instructions
+        const getDifficultyInstructions = (level) => {
+            switch (level) {
+                case 'easy':
+                    return `DIFFICULTY: EASY — Generate beginner-friendly questions.
+                    - All 5 questions should be straightforward and conceptual (no tricks, no edge cases).
+                    - Use simple language; focus on definitions, basic syntax, and everyday use-cases.
+                    - Difficulty split: 4 Easy + 1 Medium.`;
+                case 'hard':
+                    return `DIFFICULTY: HARD — Generate expert-level questions.
+                    - Focus on edge cases, performance trade-offs, system design, and advanced concepts.
+                    - Questions should challenge candidates with 2+ years of experience.
+                    - Difficulty split: 1 Easy + 2 Medium + 2 Hard.`;
+                default: // medium
+                    return `DIFFICULTY: MEDIUM — Generate intermediate-level questions.
+                    - Mix practical application questions with some conceptual ones.
+                    - Include some common interview traps and comparison questions.
+                    - Difficulty split: 1 Easy + 3 Medium + 1 Hard.`;
+            }
+        };
+
+        const difficultyInstructions = getDifficultyInstructions(difficulty);
+
+        // Fetch Student Data
+        const [students] = await pool.query(
             'SELECT resume_text, year FROM students WHERE id = ?',
             [studentId]
         );
 
-        if (!studentData || studentData.length === 0 || !studentData[0].resume_text) {
+        if (!students || students.length === 0 || !students[0].resume_text) {
             return res.status(400).json({ message: 'No resume found. Please upload a resume first.' });
         }
 
-        const resume = studentData[0].resume_text;
-        const studentYear = studentData[0].year || 'Unknown';
+        const resume = students[0].resume_text;
+        const studentYear = students[0].year || 'Final Year';
+        const performanceLevel = 'Intermediate'; // Default level
 
-        // Fetch past performance (Optional advanced logic: average score across past exams)
-        const [results] = await pool.query('SELECT AVG((score/total_marks)*100) as avg_score FROM exam_results WHERE student_id = ?', [studentId]);
-        const avgScore = results[0]?.avg_score || 0;
-        let performanceLevel = 'Average';
-        if (avgScore > 80) performanceLevel = 'Advanced';
-        else if (avgScore < 50) performanceLevel = 'Beginner';
+        logger('INFO', `Generating 15-question interview for student ${studentId}`, { role: jobRoleTarget });
 
-        logger('INFO', `Generating interview for student ${studentId}`, { role: jobRoleTarget, year: studentYear, perf: performanceLevel });
+        // Helper function for parallel generation
+        const fetchQuestionsForCategory = async (category, count, promptDetails) => {
+            const prompt = `
+            You are an expert technical interviewer. Create ${count} MCQs for the category: "${category}".
+            
+            Context:
+            - Job Target: ${jobRoleTarget}
+            - Academic Year: ${studentYear}
 
-        const prompt = `
-        You are an expert technical interviewer and recruiter.
-        Create a personalized 15-question Multiple Choice Question (MCQ) interview for a candidate applying for the role of "${jobRoleTarget}".
+            ${difficultyInstructions}
+            
+            Category Specific Instructions:
+            ${promptDetails}
 
-        Candidate Context:
-        - Job Target: ${jobRoleTarget}
-        - Academic Year: ${studentYear}
-        - Estimated Baseline Skill Level: ${performanceLevel}
-        
-        Candidate Resume:
-        """
-        ${resume.substring(0, 3000)}
-        """
+            Instructions:
+            1. Generate EXACTLY ${count} questions.
+            2. Each question must have exactly 4 options (A, B, C, D).
+            3. The "correct_answer" must be the EXACT full text of one of the options.
+            4. Provide a short explanation for why the correct answer is right.
 
-        Reference Datasets to guide difficulty and style:
-        ${REFERENCE_DATASETS.aptitude}
-        ${REFERENCE_DATASETS.logical}
-        ${REFERENCE_DATASETS.coding}
-
-        Instructions:
-        1. Generate exactly 15 MCQs.
-        2. Distribution: 5 Aptitude, 5 Logical Reasoning, 5 Technical/Coding.
-        3. The Technical/Coding questions MUST be heavily tailored to the skills, languages, and frameworks mentioned in the candidate's resume and relevant to the "${jobRoleTarget}" role.
-        4. Each question must have exactly 4 options.
-        5. Provide the correct answer exactly as it appears in the options.
-        6. Provide a short explanation.
-
-        OUTPUT FORMAT MUST BE A STRICT JSON OBJECT containing an array named "questions":
-        {
-          "questions": [
+            OUTPUT FORMAT - return ONLY this JSON structure:
             {
-              "question": "If x=5, what is...",
-              "options": ["A", "B", "C", "D"],
-              "correct_answer": "B",
-              "explanation": "Because..."
+              "questions": [
+                {
+                  "question": "...",
+                  "options": ["...", "...", "...", "..."],
+                  "correct_answer": "...",
+                  "explanation": "..."
+                }
+              ]
             }
-          ]
+            `;
+
+            const completion = await groq.chat.completions.create({
+                messages: [{ role: 'user', content: prompt }],
+                model: 'llama-3.3-70b-versatile',
+                temperature: 0.6,
+                response_format: { type: 'json_object' }
+            });
+
+            const content = JSON.parse(completion.choices[0]?.message?.content || '{"questions":[]}');
+            return (content.questions || []).filter(q => {
+                if (!q.question || !q.correct_answer || !Array.isArray(q.options) || q.options.length < 2) return false;
+                if (!q.options.some(opt => opt === q.correct_answer)) {
+                    const match = q.options.find(opt => opt.toLowerCase().trim() === q.correct_answer.toLowerCase().trim());
+                    if (match) q.correct_answer = match; else return false;
+                }
+                return true;
+            });
+        };
+
+        const domainTopics = REFERENCE_DATASETS.getDomainTopics(jobRoleTarget);
+
+        const categories = [
+            {
+                name: 'DSA',
+                count: 5,
+                prompt: `Focus ONLY on Data Structures & Algorithms (DSA):
+                - Topic variety: Arrays, Strings, Linked Lists, Stacks, Queues, Trees, Graphs, Sorting, Searching, Dynamic Programming, Hashing.
+                - Include conceptual questions (e.g. "What is the time complexity of QuickSort?") and logic-application questions.
+                - Mix of Easy, Medium, and Hard.
+                Use references: ${REFERENCE_DATASETS.aptitude}`
+            },
+            {
+                name: 'Logical Reasoning',
+                count: 5,
+                prompt: `Focus ONLY on Logical Reasoning:
+                - Topics: Number series, Blood relations, Syllogisms, Coding-decoding, Puzzles, Seating arrangements, Direction sense.
+                - Questions must test analytical thinking, NOT numerical math.
+                Use references: ${REFERENCE_DATASETS.logical}`
+            },
+            {
+                name: 'Verbal Ability',
+                count: 5,
+                prompt: `Focus ONLY on Verbal Ability & Aptitude:
+                - Topics: Reading comprehension, Vocabulary (synonyms, antonyms), Sentence correction, Fill in the blanks, Para jumbles, Analogy.
+                - Questions should test English language proficiency and verbal reasoning.`
+            },
+            {
+                name: 'Technical & Domain',
+                count: 5,
+                prompt: `The candidate applied for: "${jobRoleTarget}".
+
+                IMPORTANT: Your PRIMARY focus is the job role "${jobRoleTarget}". Ask questions specifically about:
+                ${domainTopics}
+
+                Candidate resume (for personalization only — do NOT restrict questions to resume content):
+                ${resume.substring(0, 1500)}
+
+                All 5 questions MUST be directly relevant to the day-to-day work of a "${jobRoleTarget}".`
+            }
+        ];
+
+        logger('INFO', `Generating 20-question interview for student ${studentId}`, { role: jobRoleTarget });
+        const results = await Promise.all(categories.map(c => fetchQuestionsForCategory(c.name, c.count, c.prompt)));
+        const allQuestions = results.flat();
+
+        if (allQuestions.length < 16) {
+            throw new Error(`AI generated too few valid questions (${allQuestions.length}). Please try again.`);
         }
-        `;
 
-        const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: 'system', content: prompt }],
-            model: 'llama-3.1-8b-instant',
-            temperature: 0.6,
-            response_format: { type: 'json_object' }
-        });
-
-        const jsonResponse = chatCompletion.choices[0]?.message?.content;
-        
-        if (!jsonResponse) throw new Error('No response from AI');
-
-        const parsedData = JSON.parse(jsonResponse);
-        if (!parsedData || !parsedData.questions || !Array.isArray(parsedData.questions)) {
-            throw new Error('Invalid JSON structure returned from AI');
-        }
-
-        // Save generated interview to DB
         const [interviewResult] = await pool.query(
             'INSERT INTO interviews (student_id, job_role_target) VALUES (?, ?)',
             [studentId, jobRoleTarget]
         );
         const interviewId = interviewResult.insertId;
 
-        const questionValues = parsedData.questions.map(q => [
+        const questionValues = allQuestions.map(q => [
             interviewId,
             q.question,
             JSON.stringify(q.options),
             q.correct_answer,
-            q.explanation
+            q.explanation || ''
         ]);
 
         await pool.query(
@@ -226,9 +303,9 @@ exports.generateInterview = async (req, res) => {
         );
 
         res.status(200).json({ 
-            message: 'Interview generated successfully.',
+            message: '15-question interview generated successfully.',
             interviewId: interviewId,
-            questionCount: parsedData.questions.length
+            questionCount: allQuestions.length
         });
 
     } catch (error) {
@@ -247,8 +324,8 @@ exports.getInterviews = async (req, res) => {
         );
         
         // Include resume status
-        const [student] = await pool.query('SELECT parsed_skills FROM students WHERE id = ?', [studentId]);
-        const hasResume = !!student[0]?.parsed_skills;
+        const [student] = await pool.query('SELECT resume_text, parsed_skills FROM students WHERE id = ?', [studentId]);
+        const hasResume = !!student[0]?.resume_text;
         const parsedSkills = student[0]?.parsed_skills ? JSON.parse(student[0].parsed_skills) : [];
 
         res.status(200).json({ interviews, hasResume, parsedSkills });
@@ -269,13 +346,28 @@ exports.getInterviewDetails = async (req, res) => {
             return res.status(403).json({ message: 'Unauthorized or interview not found.' });
         }
 
-        const [questions] = await pool.query('SELECT id, question, options FROM interview_questions WHERE interview_id = ?', [id]);
+        const [questions] = await pool.query(
+            'SELECT id, question, options, correct_answer, student_answer, explanation FROM interview_questions WHERE interview_id = ?', 
+            [id]
+        );
         
-        // Parse options back to arrays
-        const formattedQuestions = questions.map(q => ({
-            ...q,
-            options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options
-        }));
+        // Security: If not submitted yet, strip the correct answers and explanations
+        const isSubmitted = interview[0].ai_feedback !== null;
+        
+        const formattedQuestions = questions.map(q => {
+            const formatted = {
+                ...q,
+                options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options
+            };
+            
+            if (!isSubmitted) {
+                delete formatted.correct_answer;
+                delete formatted.explanation;
+                delete formatted.student_answer;
+            }
+            
+            return formatted;
+        });
 
         res.status(200).json({ interview: interview[0], questions: formattedQuestions });
     } catch (error) {

@@ -24,17 +24,19 @@ app.use(express.json());
 const authRoutes = require('./src/routes/authRoutes');
 const examRoutes = require('./src/routes/examRoutes');
 const aiRoutes = require('./src/routes/aiRoutes');
-const adminRoutes = require('./src/routes/adminRoutes'); // Import admin routes
-const interviewRoutes = require('./src/routes/interviewRoutes'); // Import Interview routes
+const interviewRoutes = require('./src/routes/interviewRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/ai', aiRoutes);
-app.use('/api/admin', adminRoutes); // Mount admin routes
-app.use('/api/interview', interviewRoutes); // Mount Interview routes
+app.use('/api/interview', interviewRoutes);
 
 // Initialize Database
 initDB();
+
+// Initialize Background Jobs
+const { startCronJobs } = require('./src/utils/cronJobs');
+startCronJobs();
 
 // Basic Route
 app.get('/', (req, res) => {
@@ -46,6 +48,9 @@ require('./src/sockets/proctoringSocket')(io);
 
 const PORT = process.env.PORT || 5000;
 // Triggers nodemon restart
+// Server is running on port 5000
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+// Nodemon restart trigger
+
