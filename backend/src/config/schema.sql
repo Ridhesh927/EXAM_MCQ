@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS interviews (
     id INT AUTO_INCREMENT PRIMARY KEY,
     student_id INT,
     job_role_target VARCHAR(255) NOT NULL,
+    coding_id INT NULL,
     total_score INT DEFAULT 0,
     ai_feedback TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -138,4 +139,18 @@ CREATE TABLE IF NOT EXISTS interview_questions (
     student_answer VARCHAR(255) DEFAULT NULL,
     explanation TEXT,
     FOREIGN KEY (interview_id) REFERENCES interviews (id) ON DELETE CASCADE
+);
+
+-- AI Coding Round Table
+CREATE TABLE IF NOT EXISTS coding_interviews (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    include_hard BOOLEAN DEFAULT FALSE,
+    questions JSON NOT NULL,      -- Array of 2 { title, description, constraints, examples }
+    student_codes JSON DEFAULT NULL, -- Object { q1: code, q2: code }
+    language VARCHAR(50) DEFAULT 'javascript',
+    total_score INT DEFAULT 0,
+    ai_feedback TEXT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
 );

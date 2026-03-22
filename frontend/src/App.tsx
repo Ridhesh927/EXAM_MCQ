@@ -6,6 +6,8 @@ import AvailableExams from './pages/student/AvailableExams';
 import TakeExam from './pages/student/TakeExam';
 import TakeInterview from './pages/student/TakeInterview';
 import InterviewResults from './pages/student/InterviewResults';
+import TakeCodingRound from './pages/student/TakeCodingRound';
+import CodingResults from './pages/student/CodingResults';
 import StudentResults from './pages/student/StudentResults';
 import Settings from './pages/student/Settings';
 import InterviewPrepHub from './pages/student/InterviewPrepHub';
@@ -40,6 +42,8 @@ function App() {
           <Route path="/student/exam/:id" element={<TakeExam />} />
           <Route path="/student/interview/:id" element={<TakeInterview />} />
           <Route path="/student/interview/result/:id" element={<InterviewResults />} />
+          <Route path="/student/coding/:id" element={<TakeCodingRound />} />
+          <Route path="/student/coding/result/:id" element={<CodingResults />} />
           <Route path="/student/results" element={<StudentResults />} />
           <Route path="/student/settings" element={<Settings />} />
 

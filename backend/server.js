@@ -25,11 +25,13 @@ const authRoutes = require('./src/routes/authRoutes');
 const examRoutes = require('./src/routes/examRoutes');
 const aiRoutes = require('./src/routes/aiRoutes');
 const interviewRoutes = require('./src/routes/interviewRoutes');
+const codingRoutes = require('./src/routes/codingRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/interview', interviewRoutes);
+app.use('/api/coding', codingRoutes);
 
 // Initialize Database
 initDB();

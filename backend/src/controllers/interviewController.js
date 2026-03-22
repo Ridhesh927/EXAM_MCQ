@@ -289,6 +289,43 @@ exports.generateInterview = async (req, res) => {
         );
         const interviewId = interviewResult.insertId;
 
+        // Pre-generate the coding round that will follow the MCQ round
+        let codingId = null;
+        try {
+            const includeHard = difficulty === 'hard';
+            const levelA = includeHard ? 'Medium' : 'Easy';
+            const levelB = includeHard ? 'Hard'   : 'Medium';
+            const codingPrompt = `You are a senior software engineer. Generate 2 classic DSA algorithm problems.
+One should be ${levelA} difficulty, the other ${levelB}.
+Focus on core DSA: Arrays, Strings, Hashmaps, Two Pointers, Sliding Window, Recursion, DP, Trees, or Graphs.
+Do NOT relate the problem to a specific job role. These are general algorithmic problems like LeetCode.
+
+Return ONLY a JSON object:
+{
+  "questions": [
+    { "title": "...", "difficulty": "${levelA}", "description": "...", "examples": [{"input": "...", "output": "...", "explanation": "..."}], "constraints": "...", "hint": "..." },
+    { "title": "...", "difficulty": "${levelB}", "description": "...", "examples": [{"input": "...", "output": "...", "explanation": "..."}], "constraints": "...", "hint": "..." }
+  ]
+}`;
+            const codingCompletion = await groq.chat.completions.create({
+                messages: [{ role: 'user', content: codingPrompt }],
+                model: 'llama-3.3-70b-versatile',
+                temperature: 0.7,
+                response_format: { type: 'json_object' },
+            });
+            const codingParsed = JSON.parse(codingCompletion.choices[0]?.message?.content || '{}');
+            if (codingParsed.questions && codingParsed.questions.length >= 2) {
+                const [codingResult] = await pool.query(
+                    'INSERT INTO coding_interviews (student_id, include_hard, questions) VALUES (?, ?, ?)',
+                    [studentId, includeHard, JSON.stringify(codingParsed.questions)]
+                );
+                codingId = codingResult.insertId;
+                await pool.query('UPDATE interviews SET coding_id = ? WHERE id = ?', [codingId, interviewId]);
+            }
+        } catch (codingErr) {
+            logger('WARN', 'Pre-generating coding round failed (non-fatal)', { error: codingErr.message });
+        }
+
         const questionValues = allQuestions.map(q => [
             interviewId,
             q.question,
@@ -303,8 +340,9 @@ exports.generateInterview = async (req, res) => {
         );
 
         res.status(200).json({ 
-            message: '15-question interview generated successfully.',
-            interviewId: interviewId,
+            message: 'Interview generated successfully.',
+            interviewId,
+            codingId,
             questionCount: allQuestions.length
         });
 
@@ -451,10 +489,15 @@ exports.submitInterview = async (req, res) => {
         // Update overall interview score and feedback
         await pool.query('UPDATE interviews SET total_score = ?, ai_feedback = ? WHERE id = ?', [scorePercentage, feedbackText, id]);
 
+        // Return coding_id so the frontend can chain into the coding round
+        const [updatedInterview] = await pool.query('SELECT coding_id FROM interviews WHERE id = ?', [id]);
+        const codingId = updatedInterview[0]?.coding_id || null;
+
         res.status(200).json({
             message: 'Interview submitted successfully.',
             score: scorePercentage,
-            feedback: feedbackText
+            feedback: feedbackText,
+            codingId
         });
 
     } catch (error) {

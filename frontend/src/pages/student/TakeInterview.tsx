@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Loader2, ArrowRight, ArrowLeft, CheckCircle, Flag } from 'lucide-react';
+import { Loader2, ArrowRight, ArrowLeft, CheckCircle, Flag, Code2, Trophy } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import ConfirmModal from '../../components/ConfirmModal';
 import './TakeInterview.css';
@@ -32,6 +32,8 @@ const TakeInterview = () => {
     const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+    // Transition state after MCQ submission
+    const [transitionData, setTransitionData] = useState<{ score: number; codingId: number | null } | null>(null);
 
     useEffect(() => {
         fetchInterviewData();
@@ -94,15 +96,13 @@ const TakeInterview = () => {
                 body: JSON.stringify({ answers })
             });
             
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.message || "Submission failed.");
-            }
-            
-            // Go to results page
-            navigate(`/student/interview/result/${id}`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Submission failed.');
+
+            // Show transition overlay instead of immediately navigating
+            setTransitionData({ score: data.score, codingId: data.codingId || null });
         } catch (error: any) {
-            alert(error.message || "Submission failed.");
+            alert(error.message || 'Submission failed.');
             setIsSubmitting(false);
         }
     };
@@ -113,6 +113,57 @@ const TakeInterview = () => {
                 <Loader2 className="animate-spin text-accent" size={48} />
                 <p>Loading your personalized interview...</p>
             </div>
+        );
+    }
+
+    // ─── Transition Overlay after MCQ Submission ───────────────────────────────
+    if (transitionData) {
+        const tier = transitionData.score >= 70 ? 'pass' : 'needs-work';
+        return (
+            <motion.div
+                className="interview-transition-overlay"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.4 }}
+            >
+                <div className="transition-card">
+                    <div className={`transition-score-ring ${tier}`}>
+                        <Trophy size={28} />
+                        <span>{transitionData.score}%</span>
+                    </div>
+                    <h2>Part 1 Complete!</h2>
+                    <p className="transition-desc">
+                        You scored <strong>{transitionData.score}%</strong> on the Theory (MCQ) Round.
+                        {transitionData.codingId 
+                            ? " Now it's time to put your coding skills to the test!" 
+                            : " View your detailed results below."}
+                    </p>
+
+                    {transitionData.codingId && (
+                        <div className="transition-next-info">
+                            <Code2 size={18} />
+                            <span>Part 2: DSA Coding Round — 2 Algorithmic Problems</span>
+                        </div>
+                    )}
+
+                    <div className="transition-actions">
+                        <button
+                            className="neo-btn-secondary"
+                            onClick={() => navigate(`/student/interview/result/${id}`)}
+                        >
+                            Skip to MCQ Results
+                        </button>
+                        {transitionData.codingId && (
+                            <button
+                                className="neo-btn-primary transition-cta"
+                                onClick={() => navigate(`/student/coding/${transitionData.codingId}`)}
+                            >
+                                <Code2 size={18} /> Start Coding Round <ArrowRight size={18} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </motion.div>
         );
     }
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Loader2, Sparkles, CheckCircle, Clock, BarChart3, ArrowRight } from 'lucide-react';
+import { Upload, Loader2, Sparkles, CheckCircle, Clock, BarChart3, ArrowRight, Code2 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { getToken } from '../../utils/auth';
 import './InterviewPrepHub.css';
@@ -38,6 +38,10 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [activeTab, setActiveTab] = useState<'practice' | 'history' | 'analytics'>('practice');
     const [expandedInterview, setExpandedInterview] = useState<number | null>(null);
+
+    // Coding Round State
+    const [includeHard, setIncludeHard] = useState(false);
+    const [isStartingCoding, setIsStartingCoding] = useState(false);
 
     useEffect(() => {
         fetchDashboardData();
@@ -280,6 +284,55 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                             <><Loader2 className="animate-spin" size={18} /> Building your {difficulty} interview...</>
                                         ) : (
                                             <><Sparkles size={18} /> Generate 20-Question Session</>
+                                        )}
+                                    </button>
+                                </div>
+                            )}
+
+                            {hasResume && (
+                                <div className="card generate-card coding-round-card">
+                                    <div className="coding-card-header">
+                                        <Code2 size={20} className="text-accent" />
+                                        <h3>DSA Coding Round</h3>
+                                    </div>
+                                    <p className="coding-card-desc">Practice real algorithmic problems like you'd face in FAANG/product company technical interviews. AI will review your code after submission.</p>
+                                    <div className="include-hard-toggle">
+                                        <input
+                                            type="checkbox"
+                                            id="includeHard"
+                                            checked={includeHard}
+                                            onChange={e => setIncludeHard(e.target.checked)}
+                                            disabled={isStartingCoding}
+                                        />
+                                        <label htmlFor="includeHard">
+                                            <span className="toggle-title">Include Hard Question</span>
+                                            <span className="toggle-sub">{includeHard ? '1 Medium + 1 Hard 🔴' : 'Default: 1 Easy + 1 Medium 🟡'}</span>
+                                        </label>
+                                    </div>
+                                    <button
+                                        className="neo-btn-primary full-width mt-4"
+                                        onClick={async () => {
+                                            setIsStartingCoding(true);
+                                            try {
+                                                const res = await apiFetch('/api/coding/generate', {
+                                                    method: 'POST',
+                                                    body: JSON.stringify({ includeHard }),
+                                                });
+                                                const data = await res.json();
+                                                if (!res.ok) throw new Error(data.message);
+                                                navigate(`/student/coding/${data.codingId}`);
+                                            } catch (e: any) {
+                                                alert(e.message || 'Failed to start coding round.');
+                                            } finally {
+                                                setIsStartingCoding(false);
+                                            }
+                                        }}
+                                        disabled={isStartingCoding}
+                                    >
+                                        {isStartingCoding ? (
+                                            <><Loader2 size={18} className="animate-spin" /> Generating problems...</>
+                                        ) : (
+                                            <><Code2 size={18} /> Start Coding Round</>
                                         )}
                                     </button>
                                 </div>

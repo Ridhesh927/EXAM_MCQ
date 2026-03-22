@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@types/simple-peer": "^9.11.9",
     "@types/three": "^0.182.0",
     "axios": "^1.13.2",

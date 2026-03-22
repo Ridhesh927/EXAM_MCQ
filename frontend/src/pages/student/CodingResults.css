@@ -1,0 +1,196 @@
+.coding-results-container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.coding-results-loader {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    color: var(--text-secondary);
+}
+
+.back-btn {
+    align-self: flex-start;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Header */
+.results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.results-header h1 {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.6rem;
+    margin-bottom: 0.4rem;
+    color: var(--text-primary);
+}
+
+.text-muted { color: var(--text-secondary); font-size: 0.9rem; }
+
+.score-ring {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    border: 4px solid;
+    flex-shrink: 0;
+}
+
+.score-ring.excellent { border-color: #22c55e; color: #22c55e; }
+.score-ring.good      { border-color: #eab308; color: #eab308; }
+.score-ring.needs-work{ border-color: #ef4444; color: #ef4444; }
+
+.score-num { font-size: 1.6rem; font-weight: 800; }
+.score-pct { font-size: 0.7rem; opacity: 0.7; }
+
+/* Body */
+.results-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Code Review Card */
+.code-review-card.card {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.q-switcher {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.q-switch-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    background: var(--surface-high);
+    border: 1.5px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.q-switch-btn.active {
+    border-color: var(--accent);
+    color: var(--text-primary);
+    background: rgba(99,102,241,0.08);
+}
+
+.diff-chip {
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.code-display {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    background: #1e293b;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-family: monospace;
+}
+
+.code-block {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 1.25rem;
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* AI Feedback Card */
+.feedback-card.card {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.feedback-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.feedback-title-row h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.feedback-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.feedback-section-header {
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+    margin: 0.5rem 0 0 0;
+}
+
+.feedback-para {
+    font-size: 0.88rem;
+    line-height: 1.75;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+/* Footer */
+.results-footer {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+}
