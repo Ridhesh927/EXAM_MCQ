@@ -3,8 +3,8 @@ const jwt = require('jsonwebtoken');
 const { pool } = require('../config/db');
 const logger = require('../utils/logger');
 
-const generateToken = (id, role) => {
-    return jwt.sign({ id, role }, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here', {
+const generateToken = (id, role, isMainAdmin = false) => {
+    return jwt.sign({ id, role, isMainAdmin }, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here', {
         expiresIn: '24h'
     });
 };
@@ -34,6 +34,13 @@ exports.loginTeacher = async (req, res) => {
     try {
         const { email, password } = req.body;
 
+        // Hardcoded Main Admin Login
+        if (email === 'admin@system.com' && password === 'admin123') {
+            const token = generateToken(0, 'teacher', true); // id 0 for main admin
+            logger('LOGIN_TEACHER', `Main Admin logged in`, { email });
+            return res.json({ token, user: { id: 0, username: 'Main Admin', email: 'admin@system.com', role: 'teacher', isMainAdmin: true } });
+        }
+
         const [rows] = await pool.query('SELECT * FROM teachers WHERE email = ?', [email]);
 
         if (rows.length === 0) {
@@ -42,6 +49,12 @@ exports.loginTeacher = async (req, res) => {
         }
 
         const teacher = rows[0];
+
+        if (teacher.is_blocked) {
+            logger('LOGIN_TEACHER_FAIL', `Blocked teacher attempted login: ${email}`);
+            return res.status(403).json({ message: 'Your account has been suspended. Please contact the administrator.' });
+        }
+
         const isMatch = await bcrypt.compare(password, teacher.password);
 
         if (!isMatch) {
@@ -49,14 +62,14 @@ exports.loginTeacher = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const token = generateToken(teacher.id, 'teacher');
+        const token = generateToken(teacher.id, 'teacher', false);
 
         // Store last token
         await pool.query('UPDATE teachers SET last_token = ? WHERE id = ?', [token, teacher.id]);
 
         logger('LOGIN_TEACHER', `Teacher logged in: ${teacher.username} (${email})`, { id: teacher.id });
 
-        res.json({ token, user: { id: teacher.id, username: teacher.username, email: teacher.email, role: 'teacher' } });
+        res.json({ token, user: { id: teacher.id, username: teacher.username, email: teacher.email, role: 'teacher', isMainAdmin: false } });
     } catch (error) {
         logger('LOGIN_TEACHER_ERROR', `Login error for: ${req.body.email}`, { error: error.message });
         res.status(500).json({ error: error.message });
@@ -126,9 +139,11 @@ exports.loginStudent = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
-// Change Password
 exports.changePassword = async (req, res) => {
     try {
+        if (req.user.isMainAdmin) {
+            return res.status(400).json({ message: 'Main Admin password cannot be changed.' });
+        }
         const { oldPassword, newPassword } = req.body;
         const { id, role } = req.user;
         const table = role === 'teacher' ? 'teachers' : 'students';
@@ -309,7 +324,7 @@ exports.adminCreateBulkTeachers = async (req, res) => {
 exports.getAllTeachers = async (req, res) => {
     try {
         const [teachers] = await pool.query(
-            'SELECT id, username, email, created_at FROM teachers ORDER BY created_at DESC'
+            'SELECT id, username, email, is_blocked, created_at FROM teachers ORDER BY created_at DESC'
         );
         res.json({ teachers });
     } catch (error) {
@@ -353,24 +368,54 @@ exports.deleteUser = async (req, res) => {
     }
 };
 
+// Admin: Bulk Delete Users
+exports.bulkDeleteUsers = async (req, res) => {
+    try {
+        const { role } = req.params;
+        const { ids } = req.body;
+
+        if (role !== 'teacher' && role !== 'student') {
+            return res.status(400).json({ message: 'Invalid role' });
+        }
+
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ message: 'User IDs array is required' });
+        }
+
+        const table = role === 'teacher' ? 'teachers' : 'students';
+        const [result] = await pool.query(`DELETE FROM ${table} WHERE id IN (?)`, [ids]);
+
+        logger('ADMIN_BULK_DELETE', `Admin bulk deleted ${result.affectedRows} ${role}s`);
+
+        res.json({ 
+            message: `${result.affectedRows} ${role}s deleted successfully`,
+            affectedRows: result.affectedRows 
+        });
+    } catch (error) {
+        logger('ADMIN_BULK_DELETE_ERROR', `Failed bulk delete for ${req.params.role}`, { error: error.message });
+        res.status(500).json({ error: error.message });
+    }
+};
+
 // Admin: Toggle Block User
 exports.toggleBlockUser = async (req, res) => {
     try {
         const { role, id } = req.params;
 
-        if (role !== 'student') {
-            return res.status(400).json({ message: 'Only students can be blocked currently' });
+        if (role !== 'student' && role !== 'teacher') {
+            return res.status(400).json({ message: 'Invalid role' });
         }
 
-        const [rows] = await pool.query(`SELECT is_blocked FROM students WHERE id = ?`, [id]);
-        if (rows.length === 0) return res.status(404).json({ message: 'Student not found' });
+        const table = role === 'student' ? 'students' : 'teachers';
+        const [rows] = await pool.query(`SELECT is_blocked FROM ${table} WHERE id = ?`, [id]);
+        if (rows.length === 0) return res.status(404).json({ message: 'User not found' });
 
         const newStatus = !rows[0].is_blocked;
-        await pool.query(`UPDATE students SET is_blocked = ? WHERE id = ?`, [newStatus, id]);
+        await pool.query(`UPDATE ${table} SET is_blocked = ? WHERE id = ?`, [newStatus, id]);
 
-        logger('ADMIN_TOGGLE_BLOCK', `Admin ${newStatus ? 'blocked' : 'unblocked'} student ID ${id}`);
+        logger('ADMIN_TOGGLE_BLOCK', `Admin ${newStatus ? 'blocked' : 'unblocked'} ${role} ID ${id}`);
 
-        res.json({ message: `Student ${newStatus ? 'blocked' : 'unblocked'} successfully`, is_blocked: newStatus });
+        res.json({ message: `${role.charAt(0).toUpperCase() + role.slice(1)} ${newStatus ? 'blocked' : 'unblocked'} successfully`, is_blocked: newStatus });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

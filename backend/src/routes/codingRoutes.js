@@ -19,4 +19,7 @@ router.get('/:id', codingController.getCodingRound);
 // 4. Submit code for AI grading
 router.post('/:id/submit', codingController.submitCodingRound);
 
+// 5. Secure code execution proxy (No ID required, but requires student auth)
+router.post('/execute', codingController.executeCode);
+
 module.exports = router;

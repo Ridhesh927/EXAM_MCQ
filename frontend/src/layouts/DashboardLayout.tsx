@@ -13,6 +13,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { getUser, clearAuth } from '../utils/auth';
+import { apiFetch } from '../utils/api';
 
 
 
@@ -28,17 +29,72 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
   const [userName, setUserName] = useState(userType === 'student' ? 'Scholar Name' : 'Instructor Name');
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const user = getUser(userType);
     if (user?.name) setUserName(user.name);
     else if (user?.username) setUserName(user.username);
+    
+    fetchNotifications();
+    // Poll every 60 seconds
+    const interval = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(interval);
   }, [userType]);
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await apiFetch('/api/notifications');
+      const data = await res.json();
+      if (data.success) {
+        setNotifications(data.notifications);
+        setUnreadCount(data.notifications.filter((n: any) => !n.is_read).length);
+      }
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+    }
+  };
+
+  const markAsRead = async (id: number) => {
+    try {
+      await apiFetch(`/api/notifications/${id}/read`, { method: 'PUT' });
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error('Error marking as read:', err);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      await apiFetch('/api/notifications/mark-all-read', { method: 'PUT' });
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.error('Error marking all as read:', err);
+    }
+  };
 
   const handleLogout = () => {
     clearAuth(userType);
     navigate('/login');
   };
+
+  const user = getUser(userType);
+  const isMainAdmin = user?.isMainAdmin;
+
+  const teacherNavItems = [
+    { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/teacher/dashboard' },
+    { icon: <BookOpen size={20} />, label: 'Manage Exams', path: '/teacher/exams' },
+    { icon: <ShieldAlert size={20} />, label: 'Live Proctoring', path: '/teacher/proctor' },
+    { icon: <TrendingUp size={20} />, label: 'View Results', path: '/teacher/results' },
+    { icon: <Users size={20} />, label: 'Students', path: '/teacher/students' }
+  ];
+
+  if (isMainAdmin) {
+    teacherNavItems.push({ icon: <Users size={20} />, label: 'Manage Teachers', path: '/admin/teachers' });
+  }
 
   const navItems = userType === 'student' ? [
     { icon: <LayoutDashboard size={20} />, label: 'Overview', path: '/student/dashboard' },
@@ -46,13 +102,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
     { icon: <TrendingUp size={20} />, label: 'My Results', path: '/student/results' },
     { icon: <Sparkles size={20} />, label: 'Interview Prep', path: '/student/interview-prep' },
     { icon: <Settings size={20} />, label: 'Settings', path: '/student/settings' },
-  ] : [
-    { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/teacher/dashboard' },
-    { icon: <BookOpen size={20} />, label: 'Manage Exams', path: '/teacher/exams' },
-    { icon: <ShieldAlert size={20} />, label: 'Live Proctoring', path: '/teacher/proctor' },
-    { icon: <TrendingUp size={20} />, label: 'View Results', path: '/teacher/results' },
-    { icon: <Users size={20} />, label: 'Students', path: '/teacher/students' },
-  ];
+  ] : teacherNavItems;
 
   return (
     <div className="dashboard-root">
@@ -90,14 +140,14 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
             <span className="text-muted">Academic Session: 2025-26</span>
           </div>
           <div className="header-actions">
-            {userType === 'teacher' && (
               <div className="dropdown-container">
                 <button
                   className={`icon-btn ${showNotifications ? 'active' : ''}`}
                   onClick={() => { setShowNotifications(!showNotifications); setShowProfileMenu(false); }}
+                  style={{ position: 'relative' }}
                 >
                   <Bell size={20} />
-                  <span className="notification-dot"></span>
+                  {unreadCount > 0 && <span className="notification-dot">{unreadCount}</span>}
                 </button>
                 <AnimatePresence>
                   {showNotifications && (
@@ -107,19 +157,49 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
                       exit={{ opacity: 0, y: 10 }}
                       className="header-dropdown notifications-dropdown"
                     >
-                      <div className="dropdown-header">
+                      <div className="dropdown-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h4>Notifications</h4>
+                        {unreadCount > 0 && (
+                          <button onClick={markAllAsRead} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}>Mark all read</button>
+                        )}
                       </div>
-                      <div className="dropdown-body empty-state">
-                        <Bell size={32} className="text-muted" style={{ margin: '0 auto 10px' }} />
-                        <p>You're all caught up!</p>
-                        <span className="text-muted" style={{ fontSize: '0.75rem' }}>No new alerts or warnings.</span>
+                      <div className="dropdown-body">
+                        {notifications.length > 0 ? (
+                          <div className="notifications-list">
+                            {notifications.map((n) => (
+                              <div 
+                                key={n.id} 
+                                className={`notification-item ${!n.is_read ? 'unread' : ''}`}
+                                onClick={() => {
+                                  if (!n.is_read) markAsRead(n.id);
+                                  if (n.link) navigate(n.link);
+                                  setShowNotifications(false);
+                                }}
+                              >
+                                <div className="notification-icon">
+                                  <Bell size={16} />
+                                </div>
+                                <div className="notification-content">
+                                  <p className="notification-title">{n.title}</p>
+                                  <p className="notification-desc">{n.message}</p>
+                                  <span className="notification-time">{new Date(n.created_at).toLocaleDateString()}</span>
+                                </div>
+                                {!n.is_read && <div className="unread-indicator"></div>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="empty-state" style={{ padding: '2rem 1rem' }}>
+                            <Bell size={32} className="text-muted" style={{ margin: '0 auto 10px' }} />
+                            <p>You're all caught up!</p>
+                            <span className="text-muted" style={{ fontSize: '0.75rem' }}>No new alerts or warnings.</span>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
-            )}
 
             <div className="dropdown-container">
               <div
@@ -294,13 +374,88 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
         .notification-dot {
           position: absolute;
-          top: -2px;
-          right: -2px;
-          width: 8px;
-          height: 8px;
+          top: -5px;
+          right: -5px;
+          background: #ef4444;
+          color: white;
+          font-size: 0.65rem;
+          font-weight: 700;
+          min-width: 16px;
+          height: 16px;
+          padding: 0 4px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 2px solid var(--bg);
+        }
+
+        .notifications-list {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .notification-item {
+          display: flex;
+          gap: 0.75rem;
+          padding: 1rem;
+          border-bottom: 1px solid var(--border);
+          cursor: pointer;
+          transition: background 0.2s ease;
+          position: relative;
+        }
+
+        .notification-item:hover {
+          background: var(--surface);
+        }
+
+        .notification-item.unread {
+          background: rgba(var(--accent-rgb), 0.05);
+        }
+
+        .notification-icon {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: var(--surface-high);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--accent);
+          flex-shrink: 0;
+        }
+
+        .notification-content {
+          flex: 1;
+        }
+
+        .notification-title {
+          font-weight: 600;
+          font-size: 0.875rem;
+          color: var(--text-primary);
+          margin-bottom: 2px;
+        }
+
+        .notification-desc {
+          font-size: 0.8125rem;
+          color: var(--text-secondary);
+          line-height: 1.4;
+          margin-bottom: 4px;
+        }
+
+        .notification-time {
+          font-size: 0.7rem;
+          color: var(--text-muted);
+        }
+
+        .unread-indicator {
+          width: 6px;
+          height: 6px;
           background: var(--accent);
           border-radius: 50%;
-          border: 2px solid var(--bg);
+          position: absolute;
+          top: 1rem;
+          right: 1rem;
         }
 
         .user-profile-brief {

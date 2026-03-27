@@ -6,10 +6,10 @@ const startCronJobs = () => {
     // Run every minute to check for expired exams
     cron.schedule('* * * * *', async () => {
         try {
-            const [result] = await pool.query('DELETE FROM exams WHERE expires_at < NOW()');
+            const [result] = await pool.query("UPDATE exams SET status = 'Completed' WHERE expires_at < NOW() AND status != 'Completed'");
             if (result.affectedRows > 0) {
-                logger('CRON_JOB', `Auto-deleted ${result.affectedRows} expired exams.`);
-                console.log(`[CRON] Auto-deleted ${result.affectedRows} expired exams.`);
+                logger('CRON_JOB', `Auto-marked ${result.affectedRows} expired exams as Completed.`);
+                console.log(`[CRON] Auto-marked ${result.affectedRows} expired exams as Completed.`);
             }
         } catch (error) {
             logger('CRON_ERROR', 'Failed to auto-delete expired exams', { error: error.message });

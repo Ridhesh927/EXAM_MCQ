@@ -17,14 +17,12 @@ import {
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import * as XLSX from 'xlsx';
+import { TableRowSkeleton } from '../../components/Skeleton';
 
 const DEPARTMENTS = [
-    'Computer Science (CSE)',
-    'Information Technology (IT)',
-    'Electronics & Telecom (ENTC)',
-    'Mechanical Engineering',
-    'Civil Engineering',
-    'Electrical Engineering'
+    'Computer Science',
+    'IT',
+    'ALML'
 ];
 
 const YEARS = ['First Year', 'Second Year', 'Third Year', 'Fourth Year'];
@@ -43,6 +41,8 @@ const ManageStudents = () => {
     const [importSummary, setImportSummary] = useState<{ success: any[], failed: any[] } | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -173,6 +173,11 @@ const ManageStudents = () => {
             const response = await apiFetch(`/api/auth/admin/user/student/${deleteConfirm.id}`, { method: 'DELETE' });
             if (response.ok) {
                 setStudents(prev => prev.filter(s => s.id !== deleteConfirm.id));
+                setSelectedIds(prev => {
+                    const next = new Set(prev);
+                    next.delete(deleteConfirm.id);
+                    return next;
+                });
                 setDeleteConfirm(null);
             } else {
                 const data = await response.json();
@@ -180,6 +185,45 @@ const ManageStudents = () => {
             }
         } catch (error: any) {
             alert(error.message || 'Error deleting student');
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.size === filteredStudents.length && filteredStudents.length > 0) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filteredStudents.map(s => s.id)));
+        }
+    };
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const handleBulkDelete = async () => {
+        setIsDeleting(true);
+        try {
+            const response = await apiFetch('/api/auth/admin/bulk-delete/student', {
+                method: 'DELETE',
+                body: JSON.stringify({ ids: Array.from(selectedIds) })
+            });
+            if (response.ok) {
+                setStudents(prev => prev.filter(s => !selectedIds.has(s.id)));
+                setSelectedIds(new Set());
+                setShowBulkDeleteConfirm(false);
+            } else {
+                const data = await response.json();
+                alert(data.message || 'Failed to delete selected students');
+            }
+        } catch (error: any) {
+            alert(error.message || 'Error performing bulk deletion');
         } finally {
             setIsDeleting(false);
         }
@@ -226,6 +270,11 @@ const ManageStudents = () => {
                         <button className="neo-btn-secondary" onClick={() => fileInputRef.current?.click()}>
                             <FileSpreadsheet size={18} /> Import CSV/Excel
                         </button>
+                        {selectedIds.size > 0 && (
+                            <button className="neo-btn-delete shadow-sm" onClick={() => setShowBulkDeleteConfirm(true)}>
+                                <Trash2 size={18} /> Delete Selected ({selectedIds.size})
+                            </button>
+                        )}
                         <button className="neo-btn-primary" onClick={() => setShowAddModal(true)}>
                             <UserPlus size={18} /> Add Student
                         </button>
@@ -302,6 +351,14 @@ const ManageStudents = () => {
                 <div className="student-list-container neo-card">
                     {/* List Header */}
                     <div className="list-header">
+                        <span className="col-checkbox">
+                            <input 
+                                type="checkbox" 
+                                checked={filteredStudents.length > 0 && selectedIds.size === filteredStudents.length}
+                                onChange={toggleSelectAll}
+                                className="neo-checkbox"
+                            />
+                        </span>
                         <span className="col-name">Student</span>
                         <span className="col-prn">PRN</span>
                         <span className="col-dept">Department</span>
@@ -313,9 +370,8 @@ const ManageStudents = () => {
 
                     <div className="list-body">
                         {loading ? (
-                            <div className="loading-state">
-                                <Loader2 className="animate-spin text-accent" size={28} />
-                                <p>Loading directory...</p>
+                            <div className="loading-skeletons">
+                                {[1, 2, 3, 4, 5].map(i => <TableRowSkeleton key={i} />)}
                             </div>
                         ) : fetchError ? (
                             <div className="empty-state" style={{ color: '#ef4444' }}>
@@ -334,8 +390,16 @@ const ManageStudents = () => {
                                     initial={{ opacity: 0, y: 6 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: i * 0.02 }}
-                                    className="list-row"
+                                    className={`list-row ${selectedIds.has(student.id) ? 'selected' : ''}`}
                                 >
+                                    <div className="col-checkbox">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedIds.has(student.id)}
+                                            onChange={() => toggleSelect(student.id)}
+                                            className="neo-checkbox"
+                                        />
+                                    </div>
                                     <div className="col-name">
                                         <div className="avatar-sm">{student.username.charAt(0).toUpperCase()}</div>
                                         <div className="name-email">
@@ -538,6 +602,43 @@ const ManageStudents = () => {
                     )}
                 </AnimatePresence>
 
+                {/* Bulk Delete Confirmation Modal */}
+                <AnimatePresence>
+                    {showBulkDeleteConfirm && (
+                        <div className="modal-overlay" onClick={() => !isDeleting && setShowBulkDeleteConfirm(false)}>
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                className="delete-modal"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="delete-icon-wrapper bulk">
+                                    <Trash2 size={28} />
+                                </div>
+                                <h3>Delete {selectedIds.size} Students</h3>
+                                <p>Are you sure you want to permanently delete <strong>{selectedIds.size}</strong> selected students? This action cannot be undone and all associated data for ALL selected students will be removed.</p>
+                                <div className="delete-modal-actions">
+                                    <button
+                                        className="cancel-btn"
+                                        onClick={() => setShowBulkDeleteConfirm(false)}
+                                        disabled={isDeleting}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        className="confirm-delete-btn"
+                                        onClick={handleBulkDelete}
+                                        disabled={isDeleting}
+                                    >
+                                        {isDeleting ? <><Loader2 size={16} className="animate-spin" /> Deleting...</> : <><Trash2 size={16} /> Delete Selected Students</>}
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
                 <style>{`
           .students-page { display: flex; flex-direction: column; gap: 1.5rem; }
           .page-header { display: flex; justify-content: space-between; align-items: center; }
@@ -578,13 +679,13 @@ const ManageStudents = () => {
 
           /* Student list */
           .student-list-container { padding: 0; overflow: hidden; background: var(--surface-low); }
-          .list-header { display: grid; grid-template-columns: 2fr 1fr 1.5fr 1fr 0.8fr 1fr 0.7fr; padding: 0.9rem 1.5rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+          .list-header { display: grid; grid-template-columns: 40px 2fr 1fr 1.5fr 1fr 0.8fr 1fr 0.7fr; padding: 0.9rem 1.5rem; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
           .list-body { max-height: 520px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--surface-high) transparent; }
           .list-body::-webkit-scrollbar { width: 6px; }
           .list-body::-webkit-scrollbar-track { background: transparent; }
           .list-body::-webkit-scrollbar-thumb { background: var(--surface-high); border-radius: 3px; }
 
-          .list-row { display: grid; grid-template-columns: 2fr 1fr 1.5fr 1fr 0.8fr 1fr 0.7fr; padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--border); align-items: center; transition: background 0.15s ease; }
+          .list-row { display: grid; grid-template-columns: 40px 2fr 1fr 1.5fr 1fr 0.8fr 1fr 0.7fr; padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--border); align-items: center; transition: background 0.15s ease; }
           .list-row:last-child { border-bottom: none; }
           .list-row:hover { background: rgba(255,255,255,0.02); }
 
@@ -602,7 +703,15 @@ const ManageStudents = () => {
           .status-pill { display: inline-flex; align-items: center; padding: 0.2rem 0.65rem; border-radius: 20px; font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
           .status-pill.active { background: rgba(16, 185, 129, 0.1); color: #10b981; }
           .status-pill.blocked { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
-
+ 
+          .neo-btn-delete { display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 1.1rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; font-weight: 600; font-size: 0.8125rem; border-radius: var(--radius-sm); transition: var(--transition-fast); cursor: pointer; }
+          .neo-btn-delete:hover { background: rgba(239, 68, 68, 0.2); }
+ 
+          .col-checkbox { display: flex; align-items: center; justify-content: center; width: 40px; }
+          .neo-checkbox { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface-high); cursor: pointer; accent-color: var(--accent); }
+          .list-row.selected { background: rgba(255, 255, 255, 0.05); }
+          .list-row.selected:hover { background: rgba(255, 255, 255, 0.08); }
+ 
           .col-actions { display: flex; gap: 0.35rem; }
           .action-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 6px; cursor: pointer; transition: all 0.15s ease; background: var(--surface-high); color: var(--text-muted); }
           .action-btn:hover { color: var(--text-primary); }
@@ -624,6 +733,7 @@ const ManageStudents = () => {
           /* Delete Modal */
           .delete-modal { background: var(--bg); border: 1px solid var(--border); width: 100%; max-width: 420px; border-radius: var(--radius-md); padding: 2.5rem 2rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1rem; }
           .delete-icon-wrapper { width: 64px; height: 64px; border-radius: 50%; background: rgba(239, 68, 68, 0.1); color: #ef4444; display: flex; align-items: center; justify-content: center; margin-bottom: 0.5rem; }
+          .delete-icon-wrapper.bulk { background: rgba(239, 68, 68, 0.2); }
           .delete-modal h3 { font-size: 1.5rem; margin: 0; color: var(--text-primary); }
           .delete-modal p { color: var(--text-secondary); font-size: 0.9375rem; line-height: 1.5; margin: 0; }
           .delete-modal-actions { display: flex; gap: 1rem; width: 100%; margin-top: 1.5rem; }
@@ -665,7 +775,7 @@ const ManageStudents = () => {
             .page-header { flex-direction: column; align-items: flex-start; gap: 1.25rem; }
             .header-actions { width: 100%; flex-wrap: wrap; }
             .search-row { flex-direction: column; align-items: stretch; }
-            .list-header, .list-row { grid-template-columns: 2fr 1fr 1fr 0.7fr; }
+            .list-header, .list-row { grid-template-columns: 40px 2fr 1fr 1fr 0.7fr; }
             .col-dept, .col-joined, .col-year { display: none; }
           }
           @media (max-width: 600px) {

@@ -44,6 +44,11 @@ exports.createExam = async (req, res) => {
 
             logger('CREATE_EXAM', `Teacher ID ${teacher_id} created exam: ${title}`, { examId, subject });
 
+            // Trigger Notifications for Students (Async)
+            if (status === 'Published' || !status) {
+                createExamNotifications(examId, title, target_department, target_year);
+            }
+
             res.status(201).json({ message: 'Exam created successfully', examId });
         } catch (error) {
             await connection.rollback();
@@ -57,40 +62,60 @@ exports.createExam = async (req, res) => {
     }
 };
 
-// Get All Exams (for any Teacher - shared view)
+// Get All Exams (for any Teacher - shared view originally, now restricted)
 exports.getTeacherExams = async (req, res) => {
     try {
-        const [rows] = await pool.query(
-            `SELECT e.*, t.username as created_by
+        let query = `SELECT e.*, t.username as created_by
              FROM exams e
              LEFT JOIN teachers t ON e.teacher_id = t.id
-             ORDER BY e.created_at DESC`
-        );
+             WHERE e.is_deleted = FALSE`;
+        const params = [];
+        
+        if (!req.user.isMainAdmin) {
+            query += ` AND e.teacher_id = ?`;
+            params.push(req.user.id);
+        }
+        
+        query += ` ORDER BY e.created_at DESC`;
+
+        const [rows] = await pool.query(query, params);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
 
-// Delete Exam (any teacher can delete any exam)
+// Delete Exam (restricted to owner or main admin)
 exports.deleteExam = async (req, res) => {
     try {
         const { id } = req.params;
-        const [result] = await pool.query('DELETE FROM exams WHERE id = ?', [id]);
+        let query = 'UPDATE exams SET is_deleted = TRUE WHERE id = ?';
+        const params = [id];
+        if (!req.user.isMainAdmin) {
+            query += ' AND teacher_id = ?';
+            params.push(req.user.id);
+        }
+        const [result] = await pool.query(query, params);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Exam not found' });
         }
-        logger('DELETE_EXAM', `Exam ID ${id} deleted by teacher ID ${req.user.id}`);
-        res.json({ message: 'Exam deleted successfully' });
+        logger('DELETE_EXAM', `Exam ID ${id} soft-deleted by teacher ID ${req.user.id}`);
+        res.json({ message: 'Exam deleted successfully (archived)' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
 
-// Get Exam Details (For Teacher Edit Page - no restrictions)
+// Get Exam Details (For Teacher Edit Page - no restrictions originally, now restricted)
 exports.getTeacherExamDetails = async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM exams WHERE id = ? AND teacher_id = ?', [req.params.id, req.user.id]);
+        let query = 'SELECT * FROM exams WHERE id = ?';
+        const params = [req.params.id];
+        if (!req.user.isMainAdmin) {
+            query += ' AND teacher_id = ?';
+            params.push(req.user.id);
+        }
+        const [rows] = await pool.query(query, params);
         if (rows.length === 0) return res.status(404).json({ message: 'Exam not found or unauthorized' });
 
         const exam = rows[0];
@@ -120,7 +145,13 @@ exports.updateExam = async (req, res) => {
         }
 
         // Verify ownership
-        const [authCheck] = await pool.query('SELECT id FROM exams WHERE id = ? AND teacher_id = ?', [id, teacher_id]);
+        let authQuery = 'SELECT id FROM exams WHERE id = ?';
+        const authParams = [id];
+        if (!req.user.isMainAdmin) {
+            authQuery += ' AND teacher_id = ?';
+            authParams.push(teacher_id);
+        }
+        const [authCheck] = await pool.query(authQuery, authParams);
         if (authCheck.length === 0) return res.status(403).json({ message: 'Unauthorized or exam not found' });
 
         const connection = await pool.getConnection();
@@ -159,6 +190,12 @@ exports.updateExam = async (req, res) => {
 
             await connection.commit();
             logger('UPDATE_EXAM', `Teacher ID ${teacher_id} updated exam: ${title}`, { examId: id });
+
+            // Trigger Notifications if status changed to Published or updated while Published
+            if (status === 'Published') {
+                createExamNotifications(id, title, target_department, target_year);
+            }
+
             res.json({ message: 'Exam updated successfully' });
         } catch (error) {
             await connection.rollback();
@@ -186,10 +223,14 @@ exports.scheduleExam = async (req, res) => {
             }
         }
 
-        const [result] = await pool.query(
-            'UPDATE exams SET status = ?, scheduled_start = ? WHERE id = ? AND teacher_id = ?',
-            [status, scheduled_start || null, id, req.user.id]
-        );
+        let query = 'UPDATE exams SET status = ?, scheduled_start = ? WHERE id = ?';
+        const params = [status, scheduled_start || null, id];
+        if (!req.user.isMainAdmin) {
+            query += ' AND teacher_id = ?';
+            params.push(req.user.id);
+        }
+
+        const [result] = await pool.query(query, params);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Exam not found or you are not authorized' });
@@ -242,6 +283,7 @@ exports.getAvailableExams = async (req, res) => {
              (SELECT COUNT(*) FROM exam_questions WHERE exam_id = e.id) as question_count
              FROM exams e
              WHERE e.status IN ('Published', 'Scheduled')
+             AND e.is_deleted = FALSE
              AND ${deptCondition}
              AND ${yearCondition}
              AND e.expires_at > NOW()
@@ -507,15 +549,31 @@ exports.getDashboardStats = async (req, res) => {
     try {
         const teacherId = req.user.id;
 
-        const [examCount] = await pool.query('SELECT COUNT(*) as total FROM exams WHERE teacher_id = ?', [teacherId]);
-        const [activeSessions] = await pool.query(
-            'SELECT COUNT(*) as total FROM exam_sessions es JOIN exams e ON es.exam_id = e.id WHERE e.teacher_id = ? AND es.status = "active"',
-            [teacherId]
-        );
-        const [recentResults] = await pool.query(
-            'SELECT er.*, s.username as student_name, e.title as exam_title FROM exam_results er JOIN students s ON er.student_id = s.id JOIN exams e ON er.exam_id = e.id WHERE e.teacher_id = ? ORDER BY er.submitted_at DESC LIMIT 5',
-            [teacherId]
-        );
+        let examQuery = 'SELECT COUNT(*) as total FROM exams WHERE is_deleted = FALSE';
+        let examParams = [];
+        
+        let sessionQuery = 'SELECT COUNT(*) as total FROM exam_sessions es JOIN exams e ON es.exam_id = e.id WHERE es.status = "active"';
+        let sessionParams = [];
+        
+        let resultQuery = 'SELECT er.*, s.username as student_name, e.title as exam_title FROM exam_results er JOIN students s ON er.student_id = s.id JOIN exams e ON er.exam_id = e.id WHERE 1=1';
+        let resultParams = [];
+
+        if (!req.user.isMainAdmin) {
+            examQuery += ' AND teacher_id = ?';
+            examParams.push(teacherId);
+            
+            sessionQuery += ' AND e.teacher_id = ?';
+            sessionParams.push(teacherId);
+            
+            resultQuery += ' AND e.teacher_id = ?';
+            resultParams.push(teacherId);
+        }
+
+        resultQuery += ' ORDER BY er.submitted_at DESC LIMIT 5';
+
+        const [examCount] = await pool.query(examQuery, examParams);
+        const [activeSessions] = await pool.query(sessionQuery, sessionParams);
+        const [recentResults] = await pool.query(resultQuery, resultParams);
 
         res.json({
             totalExams: examCount[0].total,
@@ -576,7 +634,7 @@ exports.getTeacherResults = async (req, res) => {
     try {
         const teacherId = req.user.id;
 
-        const [results] = await pool.query(`
+        let query = `
             SELECT 
                 er.id,
                 er.score,
@@ -590,9 +648,18 @@ exports.getTeacherResults = async (req, res) => {
             FROM exam_results er
             JOIN exams e ON er.exam_id = e.id
             JOIN students s ON er.student_id = s.id
-            WHERE e.teacher_id = ?
-            ORDER BY er.submitted_at DESC
-        `, [teacherId]);
+            WHERE 1=1
+        `;
+        const params = [];
+        
+        if (!req.user.isMainAdmin) {
+            query += ` AND e.teacher_id = ?`;
+            params.push(teacherId);
+        }
+        
+        query += ` ORDER BY er.submitted_at DESC`;
+
+        const [results] = await pool.query(query, params);
 
         res.json({ results });
     } catch (error) {
@@ -629,3 +696,38 @@ exports.getStudentResults = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+// Helper: Create Notifications for target students when an exam is published
+async function createExamNotifications(examId, title, dept, year) {
+    try {
+        let query = 'SELECT id FROM students WHERE 1=1';
+        const params = [];
+
+        if (dept) {
+            query += ' AND department = ?';
+            params.push(dept);
+        }
+        if (year) {
+            query += ' AND year = ?';
+            params.push(year);
+        }
+
+        const [students] = await pool.query(query, params);
+
+        if (students.length > 0) {
+            const notificationValues = students.map(s => [
+                s.id,
+                'student',
+                'New Exam Assigned',
+                `A new exam "${title}" has been assigned to your department/year.`,
+                `/student/exams`
+            ]);
+
+            await pool.query(
+                'INSERT INTO notifications (user_id, user_type, title, message, link) VALUES ?',
+                [notificationValues]
+            );
+        }
+    } catch (error) {
+        console.error('Error creating exam notifications:', error);
+    }
+}

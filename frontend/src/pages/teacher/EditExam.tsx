@@ -279,12 +279,9 @@ const EditExam = () => {
                                             onChange={(e) => setExamData({ ...examData, target_department: e.target.value })}
                                         >
                                             <option value="">All Departments</option>
-                                            <option>Computer Science (CSE)</option>
-                                            <option>Information Technology (IT)</option>
-                                            <option>Electronics & Telecom (ENTC)</option>
-                                            <option>Mechanical Engineering</option>
-                                            <option>Civil Engineering</option>
-                                            <option>Electrical Engineering</option>
+                                            <option>Computer Science</option>
+                                            <option>IT</option>
+                                            <option>ALML</option>
                                         </select>
                                     </div>
                                     <div className="form-group">

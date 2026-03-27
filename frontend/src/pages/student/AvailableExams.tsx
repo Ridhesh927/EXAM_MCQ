@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, ChevronRight, Loader2 } from 'lucide-react';
+import { Clock, ChevronRight } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 import { getToken } from '../../utils/auth';
+import { CardSkeleton } from '../../components/Skeleton';
 
 interface AvailableExamsProps {
     standalone?: boolean;
@@ -50,9 +51,8 @@ const AvailableExams: React.FC<AvailableExamsProps> = ({ standalone = true }) =>
             </header>
 
             {loading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '4rem', color: 'var(--text-muted)' }}>
-                    <Loader2 className="animate-spin" size={36} />
-                    <p>Loading assessments...</p>
+                <div className="exams-grid">
+                    {[1, 2, 3, 4, 5, 6].map(i => <CardSkeleton key={i} />)}
                 </div>
             ) : error ? (
                 <div style={{ padding: '4rem', textAlign: 'center', color: '#ef4444' }}>

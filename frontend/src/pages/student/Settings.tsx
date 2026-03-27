@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { KeyRound, ShieldCheck, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { KeyRound, ShieldCheck, AlertCircle, CheckCircle2, Eye, EyeOff, Lock } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
-import { getToken } from '../../utils/auth';
+import { getToken, getUser } from '../../utils/auth';
 
 const Settings = ({ userType = 'student' }: { userType?: 'student' | 'teacher' }) => {
+    const user = getUser(userType);
+    const isMainAdmin = user?.isMainAdmin;
     const [oldPassword, setOldPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -83,87 +85,99 @@ const Settings = ({ userType = 'student' }: { userType?: 'student' | 'teacher' }
                             <h2>Security</h2>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="settings-form">
-                            <div className="form-group">
-                                <label>Current Password</label>
-                                <div className="password-input-wrapper">
-                                    <input
-                                        type={showOldPassword ? "text" : "password"}
-                                        className="neo-input"
-                                        placeholder="Enter current password"
-                                        value={oldPassword}
-                                        onChange={(e) => setOldPassword(e.target.value)}
-                                        required
-                                    />
-                                    <button
-                                        type="button"
-                                        className="eye-toggle-btn"
-                                        onClick={() => setShowOldPassword(!showOldPassword)}
-                                    >
-                                        {showOldPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
+                        {isMainAdmin ? (
+                            <div className="security-notice" style={{ marginTop: '1rem', borderLeftColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.05)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                                    <Lock size={18} color="#f59e0b" />
+                                    <h3 style={{ color: '#f59e0b', fontSize: '1rem', margin: 0 }}>System Account</h3>
                                 </div>
+                                <p style={{ color: 'var(--text-secondary)' }}>
+                                    The Main Admin password is hardcoded securely in the system configuration and cannot be changed from the dashboard.
+                                </p>
                             </div>
-
-                            <div className="form-group">
-                                <label>New Password</label>
-                                <div className="password-input-wrapper">
-                                    <input
-                                        type={showNewPassword ? "text" : "password"}
-                                        className="neo-input"
-                                        placeholder="Enter new password"
-                                        value={newPassword}
-                                        onChange={(e) => setNewPassword(e.target.value)}
-                                        required
-                                    />
-                                    <button
-                                        type="button"
-                                        className="eye-toggle-btn"
-                                        onClick={() => setShowNewPassword(!showNewPassword)}
-                                    >
-                                        {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
+                        ) : (
+                            <form onSubmit={handleSubmit} className="settings-form">
+                                <div className="form-group">
+                                    <label>Current Password</label>
+                                    <div className="password-input-wrapper">
+                                        <input
+                                            type={showOldPassword ? "text" : "password"}
+                                            className="neo-input"
+                                            placeholder="Enter current password"
+                                            value={oldPassword}
+                                            onChange={(e) => setOldPassword(e.target.value)}
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            className="eye-toggle-btn"
+                                            onClick={() => setShowOldPassword(!showOldPassword)}
+                                        >
+                                            {showOldPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div className="form-group">
-                                <label>Confirm New Password</label>
-                                <div className="password-input-wrapper">
-                                    <input
-                                        type={showConfirmPassword ? "text" : "password"}
-                                        className="neo-input"
-                                        placeholder="Repeat new password"
-                                        value={confirmPassword}
-                                        onChange={(e) => setConfirmPassword(e.target.value)}
-                                        required
-                                    />
-                                    <button
-                                        type="button"
-                                        className="eye-toggle-btn"
-                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                    >
-                                        {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                    </button>
+                                <div className="form-group">
+                                    <label>New Password</label>
+                                    <div className="password-input-wrapper">
+                                        <input
+                                            type={showNewPassword ? "text" : "password"}
+                                            className="neo-input"
+                                            placeholder="Enter new password"
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            className="eye-toggle-btn"
+                                            onClick={() => setShowNewPassword(!showNewPassword)}
+                                        >
+                                            {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
 
-                            {status.type !== 'idle' && (
-                                <div className={`status-message ${status.type}`}>
-                                    {status.type === 'error' ? <AlertCircle size={18} /> :
-                                        status.type === 'success' ? <CheckCircle2 size={18} /> : null}
-                                    <span>{status.message}</span>
+                                <div className="form-group">
+                                    <label>Confirm New Password</label>
+                                    <div className="password-input-wrapper">
+                                        <input
+                                            type={showConfirmPassword ? "text" : "password"}
+                                            className="neo-input"
+                                            placeholder="Repeat new password"
+                                            value={confirmPassword}
+                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            required
+                                        />
+                                        <button
+                                            type="button"
+                                            className="eye-toggle-btn"
+                                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                        >
+                                            {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                        </button>
+                                    </div>
                                 </div>
-                            )}
 
-                            <button
-                                type="submit"
-                                className="neo-btn-primary"
-                                disabled={status.type === 'loading'}
-                            >
-                                {status.type === 'loading' ? 'Updating...' : 'Update Password'}
-                                <ShieldCheck size={18} />
-                            </button>
-                        </form>
+                                {status.type !== 'idle' && (
+                                    <div className={`status-message ${status.type}`}>
+                                        {status.type === 'error' ? <AlertCircle size={18} /> :
+                                            status.type === 'success' ? <CheckCircle2 size={18} /> : null}
+                                        <span>{status.message}</span>
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    className="neo-btn-primary"
+                                    disabled={status.type === 'loading'}
+                                >
+                                    {status.type === 'loading' ? 'Updating...' : 'Update Password'}
+                                    <ShieldCheck size={18} />
+                                </button>
+                            </form>
+                        )}
                     </motion.div>
 
                     <motion.div

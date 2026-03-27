@@ -7,12 +7,14 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
-  Sidebar as SidebarIcon
+  Sidebar as SidebarIcon,
+  Flag
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import Peer from 'simple-peer';
 import * as faceapi from 'face-api.js';
 import { getToken, getUser } from '../../utils/auth';
+import Skeleton from '../../components/Skeleton';
 
 
 
@@ -20,7 +22,7 @@ import { getToken, getUser } from '../../utils/auth';
 const TakeExam = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [timeLeft, setTimeLeft] = useState(3600); // default, will be overridden by exam data
+  const [timeLeft, setTimeLeft] = useState<number>(3600); // default, will be overridden by exam data
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
@@ -34,7 +36,8 @@ const TakeExam = () => {
   // Real exam data state
   const [exam, setExam] = useState<any>(null);
   const [questions, setQuestions] = useState<any[]>([]);
-  const [answers, setAnswers] = useState<{ [questionId: number]: number }>({});
+  const [answers, setAnswers] = useState<{ [key: number]: number }>({});
+  const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
   const answersRef = useRef<{ [questionId: number]: number }>({});
   const [examLoading, setExamLoading] = useState(true);
   const [examError, setExamError] = useState<string | null>(null);
@@ -90,9 +93,18 @@ const TakeExam = () => {
 
   // Handle selecting an answer
   const selectAnswer = (questionId: number, optionIndex: number) => {
-    const newAnswers = { ...prevAnswers(), [questionId]: optionIndex };
-    setAnswers(newAnswers);
-    answersRef.current = newAnswers;
+    setAnswers(prev => ({ ...prev, [questionId]: optionIndex }));
+  };
+
+  const toggleMarkForReview = () => {
+    if (questions.length === 0) return;
+    const qId = questions[currentQuestion].id;
+    setMarkedForReview(prev => {
+      const next = new Set(prev);
+      if (next.has(qId)) next.delete(qId);
+      else next.add(qId);
+      return next;
+    });
   };
 
   // Helper because answers state might be stale in closures
@@ -495,9 +507,17 @@ const TakeExam = () => {
   if (examLoading) {
     return (
       <div className="fullscreen-guard">
-        <div className="guard-content neo-card">
-          <div style={{ color: 'var(--accent)', fontSize: '1.25rem', fontWeight: 600 }}>Loading Exam...</div>
-          <p style={{ color: 'var(--text-secondary)' }}>Preparing your assessment environment.</p>
+        <div className="guard-content neo-card" style={{ width: '100%', maxWidth: '800px' }}>
+          <div style={{ width: '100%', textAlign: 'left' }}>
+            <Skeleton variant="text" width="40%" height={32} className="mb-4" />
+            <Skeleton variant="text" width="70%" height={20} className="mb-8" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2rem' }}>
+              <Skeleton variant="rounded" height={100} />
+              <Skeleton variant="rounded" height={100} />
+            </div>
+            <Skeleton variant="rectangular" height={200} className="mb-8" />
+            <Skeleton variant="rounded" width={200} height={48} style={{ margin: '0 auto' }} />
+          </div>
         </div>
         <style>{`
           .fullscreen-guard { height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%); }
@@ -1001,7 +1021,20 @@ const TakeExam = () => {
         <main className="question-area">
           <div className="question-card neo-card">
             <header className="q-header">
-              <span className="q-number">Inquiry {currentQuestion + 1} of {questions.length}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <span className="q-number">Inquiry {currentQuestion + 1} of {questions.length}</span>
+                {questions[currentQuestion] && (
+                  <button
+                    className={`mark-review-btn ${markedForReview.has(questions[currentQuestion].id) ? 'active' : ''}`}
+                    onClick={toggleMarkForReview}
+                    disabled={faceCount !== 1 && detectionStabilized}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: markedForReview.has(questions[currentQuestion].id) ? '#f59e0b' : 'var(--text-muted)' }}
+                  >
+                    <Flag size={14} fill={markedForReview.has(questions[currentQuestion].id) ? '#f59e0b' : 'none'} />
+                    {markedForReview.has(questions[currentQuestion].id) ? 'Marked' : 'Mark for Review'}
+                  </button>
+                )}
+              </div>
               <span className="q-points">{questions[currentQuestion]?.marks || 5} Points</span>
             </header>
 
@@ -1083,16 +1116,28 @@ const TakeExam = () => {
           <div className="question-palette neo-card">
             <h3>Navigation Palette</h3>
             <div className="palette-grid">
-              {questions.map((q, i) => (
-                <button
-                  key={q.id || i}
-                  className={`palette-idx ${i === currentQuestion ? 'active' : ''} ${answers[q.id] !== undefined ? 'answered' : ''}`}
-                  onClick={() => setCurrentQuestion(i)}
-                  disabled={faceCount !== 1 && detectionStabilized}
-                >
-                  {i + 1}
-                </button>
-              ))}
+              {questions.map((q, i) => {
+                const isAnswered = answers[q.id] !== undefined;
+                const isFlagged = markedForReview.has(q.id);
+                const isActive = i === currentQuestion;
+                return (
+                  <button
+                    key={q.id || i}
+                    className={`palette-idx ${isActive ? 'active' : ''} ${isAnswered ? 'answered' : ''} ${isFlagged ? 'flagged' : ''}`}
+                    onClick={() => setCurrentQuestion(i)}
+                    disabled={faceCount !== 1 && detectionStabilized}
+                  >
+                    {i + 1}
+                    {isFlagged && <div className="indicator-dot flagged" />}
+                    {isAnswered && !isFlagged && <div className="indicator-dot answered" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="palette-legend" style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--accent)' }}></span> Answered</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--surface-high)', border: '1px solid var(--border)' }}></span> Unanswered</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--surface-high)', border: '1px solid #f59e0b' }}><div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', margin: '2px' }}></div></span> Flagged</div>
             </div>
           </div>
         </aside>
@@ -1367,6 +1412,7 @@ const TakeExam = () => {
           margin-top: 1rem;
         }
         .palette-idx {
+          position: relative;
           height: 40px;
           display: flex;
           align-items: center;
@@ -1384,12 +1430,26 @@ const TakeExam = () => {
           border-color: var(--accent);
           color: var(--accent);
           background: var(--surface-high);
+          box-shadow: 0 0 0 1px var(--accent);
         }
         .palette-idx.answered {
           background: var(--accent);
           color: var(--bg);
           border-color: var(--accent);
         }
+        .palette-idx.flagged {
+          border-color: #f59e0b;
+        }
+        .indicator-dot {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+        }
+        .indicator-dot.flagged { background: #f59e0b; }
+        .indicator-dot.answered { background: var(--bg); }
         .sidebar-toggle {
           position: absolute;
           top: 1rem;

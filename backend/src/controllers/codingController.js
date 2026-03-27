@@ -1,5 +1,6 @@
 const { pool } = require('../config/db');
 const Groq = require('groq-sdk');
+const notificationController = require('./notificationController');
 const logger = require('../utils/logger');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -15,6 +16,140 @@ const callAI = async (prompt) => {
         response_format: { type: 'json_object' },
     });
     return JSON.parse(completion.choices[0]?.message?.content || '{}');
+};
+
+const callAIText = async (prompt) => {
+    const completion = await groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.2,
+    });
+    return completion.choices[0]?.message?.content || '';
+};
+
+// ─────────────────────────────────────────────
+// Execute Code via Local Machine (100% Free)
+// ─────────────────────────────────────────────
+const fs = require('fs/promises');
+const path = require('path');
+const os = require('os');
+const { exec } = require('child_process');
+const crypto = require('crypto');
+
+exports.executeCode = async (req, res) => {
+    try {
+        const { language, sourceCode, stdin = '', codingId, questionIndex } = req.body;
+
+        const EXTENSIONS = {
+            javascript: 'js',
+            python: 'py',
+            java: 'java',
+            cpp: 'cpp',
+        };
+
+        const ext = EXTENSIONS[language];
+        if (!ext) {
+            return res.status(400).json({ message: 'Unsupported language' });
+        }
+
+        // Create a unique temporary file
+        const fileId = crypto.randomUUID();
+        // Move tempDir to the Operating System's temporary directory to avoid triggering Nodemon restarts!
+        const tempDir = path.join(os.tmpdir(), 'exam_portal_exec', fileId);
+        await fs.mkdir(tempDir, { recursive: true });
+
+        let fileName = `main.${ext}`;
+        if (language === 'java') {
+            fileName = 'Solution.java'; // Standard name for Java templates
+        }
+
+        const filePath = path.join(tempDir, fileName);
+        await fs.writeFile(filePath, sourceCode);
+
+        // Command mapping
+        let command = '';
+        if (language === 'javascript') {
+            command = `node ${fileName}`;
+        } else if (language === 'python') {
+            command = `python ${fileName}`;
+        } else if (language === 'cpp') {
+            command = process.platform === 'win32' 
+                ? `g++ ${fileName} -o main.exe && main.exe`
+                : `g++ ${fileName} -o main && ./main`;
+        } else if (language === 'java') {
+            command = `javac ${fileName} && java Solution`;
+        }
+
+        // Execute code locally via Promise
+        const executeLocal = () => new Promise((resolve) => {
+            exec(command, { cwd: tempDir, timeout: 5000 }, async (error, stdout, stderr) => {
+                try { await fs.rm(tempDir, { recursive: true, force: true }); } catch (e) {}
+
+                if (error) {
+                    const isTimeout = error.killed;
+                    resolve({
+                        stdout: stdout || '',
+                        stderr: isTimeout ? 'Execution Timed Out (Maximum 5 seconds)' : stderr || error.message,
+                        compile_output: '',
+                        status: isTimeout ? { id: 5, description: 'Time Limit Exceeded' } : { id: 4, description: 'Runtime Error' }
+                    });
+                } else {
+                    resolve({
+                        stdout: stdout || '',
+                        stderr: stderr || '',
+                        compile_output: '',
+                        status: { id: 3, description: 'Accepted' },
+                        time: '0.1',
+                        memory: '1024'
+                    });
+                }
+            });
+        });
+
+        // Concurrently run AI Testing if codingId is present
+        let aiPromise = Promise.resolve('');
+        if (codingId !== undefined && questionIndex !== undefined) {
+            aiPromise = (async () => {
+                const [rows] = await pool.query('SELECT questions FROM coding_interviews WHERE id = ?', [codingId]);
+                if (rows.length > 0) {
+                    const questions = typeof rows[0].questions === 'string' ? JSON.parse(rows[0].questions) : rows[0].questions;
+                    const q = questions[questionIndex];
+                    if (q) {
+                        const prompt = `
+You are a testing suite. The student just clicked 'Run Code' to test their solution.
+Problem: ${q.title}
+Description: ${q.description}
+Examples/Tests: ${JSON.stringify(q.examples)}
+Constraints: ${q.constraints}
+
+Student's ${language} Code:
+\`\`\`
+${sourceCode}
+\`\`\`
+
+Evaluate ONLY if this code correctly solves the problem for all standard test cases and edge cases.
+- If it is fully correct, output exactly: "✅ All Example and Hidden Test Cases Passed!"
+- If it has a bug, logic flaw, or fails a case, output a concise message like: "❌ Failed: Your code fails for input X. It returns Y instead of Z." or "❌ Failed: Logic error on line 4..."
+Do NOT provide the correct code. Just verify execution correctness. Keep it to 1-3 sentences max.
+`;
+                        return await callAIText(prompt);
+                    }
+                }
+                return '';
+            })();
+        }
+
+        const [localResult, aiFeedback] = await Promise.all([executeLocal(), aiPromise]);
+
+        res.json({
+            ...localResult,
+            ai_test_feedback: aiFeedback
+        });
+
+    } catch (error) {
+        logger('ERROR', 'Error executing code locally', { error: error.message });
+        res.status(500).json({ message: 'Local code execution failed', error: error.message });
+    }
 };
 
 // ─────────────────────────────────────────────
@@ -187,6 +322,16 @@ Return ONLY a JSON object:
         );
 
         logger('INFO', `Coding round ${id} graded`, { score });
+
+        // Trigger Notification
+        notificationController.createNotification(
+            studentId,
+            'student',
+            'Coding Round Graded',
+            `Your AI coding round evaluation is complete. Total Score: ${score}/100.`,
+            `/student/results`
+        );
+
         res.status(200).json({ score, feedback: feedbackText });
 
     } catch (error) {

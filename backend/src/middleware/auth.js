@@ -12,6 +12,11 @@ const authMiddleware = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here');
         req.user = decoded;
 
+        // Skip token check in DB for hardcoded main admin
+        if (decoded.id === 0 && decoded.isMainAdmin) {
+            return next();
+        }
+
         const table = decoded.role === 'teacher' ? 'teachers' : 'students';
         const [rows] = await pool.query(`SELECT last_token FROM ${table} WHERE id = ?`, [decoded.id]);
 
@@ -34,4 +39,11 @@ const roleMiddleware = (roles) => {
     };
 };
 
-module.exports = { authMiddleware, roleMiddleware };
+const mainAdminMiddleware = (req, res, next) => {
+    if (!req.user.isMainAdmin) {
+        return res.status(403).json({ message: 'Access denied: Main Admin privileges required' });
+    }
+    next();
+};
+
+module.exports = { authMiddleware, roleMiddleware, mainAdminMiddleware };

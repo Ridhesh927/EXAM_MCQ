@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS teachers (
     username VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
+    is_blocked BOOLEAN DEFAULT FALSE,
     last_token TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS exams (
     target_department VARCHAR(255) DEFAULT NULL,
     target_year VARCHAR(50) DEFAULT NULL,
     expires_at DATETIME NOT NULL,
+    is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (teacher_id) REFERENCES teachers (id) ON DELETE CASCADE
 );
@@ -117,7 +119,20 @@ CREATE TABLE IF NOT EXISTS student_responses (
     FOREIGN KEY (question_id) REFERENCES exam_questions (id) ON DELETE CASCADE
 );
 
--- AI Intervew Preparation Tables
+-- Notifications Table
+CREATE TABLE IF NOT EXISTS notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    user_type ENUM('student', 'teacher') NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    link VARCHAR(255) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX (user_id, user_type)
+);
+
+-- AI Interview Preparation Tables
 
 CREATE TABLE IF NOT EXISTS interviews (
     id INT AUTO_INCREMENT PRIMARY KEY,

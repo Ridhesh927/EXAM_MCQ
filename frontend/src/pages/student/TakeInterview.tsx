@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Loader2, ArrowRight, ArrowLeft, CheckCircle, Flag, Code2, Trophy } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import Skeleton from '../../components/Skeleton';
 import ConfirmModal from '../../components/ConfirmModal';
 import './TakeInterview.css';
 
@@ -109,9 +110,34 @@ const TakeInterview = () => {
 
     if (loading) {
         return (
-            <div className="interview-loading">
-                <Loader2 className="animate-spin text-accent" size={48} />
-                <p>Loading your personalized interview...</p>
+            <div className="take-interview-container">
+                <header className="interview-header">
+                    <div style={{ flex: 1 }}>
+                        <Skeleton variant="text" width="60%" height={40} className="mb-2" />
+                        <Skeleton variant="text" width="90%" height={20} />
+                    </div>
+                </header>
+                <div className="interview-layout">
+                    <main className="question-area">
+                        <div className="question-card">
+                            <Skeleton variant="text" width="30%" height={24} className="mb-4" />
+                            <Skeleton variant="text" width="80%" height={32} className="mb-8" />
+                            <div className="options-list">
+                                {[1, 2, 3, 4].map(i => (
+                                    <Skeleton key={i} variant="rounded" height={60} className="mb-4" />
+                                ))}
+                            </div>
+                        </div>
+                    </main>
+                    <aside className="question-nav-sidebar">
+                        <Skeleton variant="text" width="50%" height={24} className="mb-4" />
+                        <div className="question-grid">
+                            {Array.from({ length: 20 }).map((_, i) => (
+                                <Skeleton key={i} variant="circular" width={32} height={32} />
+                            ))}
+                        </div>
+                    </aside>
+                </div>
             </div>
         );
     }

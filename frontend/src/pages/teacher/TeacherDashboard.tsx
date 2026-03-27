@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Users, FileText, CheckCircle2, MoreHorizontal } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { apiFetch } from '../../utils/api';
+import { DashboardStatsSkeleton } from '../../components/Skeleton';
 
 const TeacherDashboard = () => {
     const [stats, setStats] = useState({
@@ -38,28 +39,32 @@ const TeacherDashboard = () => {
                     </motion.div>
                 </header>
 
-                <div className="stats-grid">
-                    {[
-                        { label: 'Total Exams', value: stats.totalExams, icon: <FileText />, color: 'var(--accent)' },
-                        { label: 'Active Sessions', value: stats.activeSessions, icon: <Users />, color: 'var(--accent)' },
-                        { label: 'Completed Today', value: '-', icon: <CheckCircle2 />, color: 'var(--success)' },
-                        { label: 'Pending Reviews', value: '-', icon: <MoreHorizontal />, color: 'var(--accent)' },
-                    ].map((stat, i) => (
-                        <motion.div
-                            key={stat.label}
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: i * 0.1 }}
-                            className="neo-card stat-card"
-                        >
-                            <div className="stat-icon" style={{ color: stat.color }}>{stat.icon}</div>
-                            <div className="stat-content">
-                                <span className="stat-label">{stat.label}</span>
-                                <span className="stat-value">{stat.value}</span>
-                            </div>
-                        </motion.div>
-                    ))}
-                </div>
+                {loading ? (
+                    <DashboardStatsSkeleton />
+                ) : (
+                    <div className="stats-grid">
+                        {[
+                            { label: 'Total Exams', value: stats.totalExams, icon: <FileText />, color: 'var(--accent)' },
+                            { label: 'Active Sessions', value: stats.activeSessions, icon: <Users />, color: 'var(--accent)' },
+                            { label: 'Completed Today', value: '-', icon: <CheckCircle2 />, color: 'var(--success)' },
+                            { label: 'Pending Reviews', value: '-', icon: <MoreHorizontal />, color: 'var(--accent)' },
+                        ].map((stat, i) => (
+                            <motion.div
+                                key={stat.label}
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ delay: i * 0.1 }}
+                                className="neo-card stat-card"
+                            >
+                                <div className="stat-icon" style={{ color: stat.color }}>{stat.icon}</div>
+                                <div className="stat-content">
+                                    <span className="stat-label">{stat.label}</span>
+                                    <span className="stat-value">{stat.value}</span>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                )}
 
                 {/* ... More sections could go here ... */}
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Loader2, ArrowLeft, CheckCircle, XCircle, BrainCircuit, ArrowRight, ClipboardCheck, Download } from 'lucide-react';
+import { Loader2, ArrowLeft, CheckCircle, XCircle, BrainCircuit, ArrowRight, ClipboardCheck, Download, Code2 } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import './InterviewResults.css';
 
@@ -28,6 +28,7 @@ const InterviewResults = () => {
     
     const [interview, setInterview] = useState<Interview | null>(null);
     const [questions, setQuestions] = useState<Question[]>([]);
+    const [codingRound, setCodingRound] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [showDetailed, setShowDetailed] = useState(false);
 
@@ -36,53 +37,45 @@ const InterviewResults = () => {
         const { job_role_target, total_score, ai_feedback, created_at } = interview;
         const date = new Date(created_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
 
-        const SECTIONS = [
-            { label: 'DSA', start: 0, end: 5 },
-            { label: 'Logical Reasoning', start: 5, end: 10 },
-            { label: 'Verbal Ability', start: 10, end: 15 },
-            { label: 'Technical / Domain', start: 15, end: 20 },
-        ];
-
-        const questionHTML = SECTIONS.map(sec => {
-            const sectionQs = questions.slice(sec.start, sec.end);
-            if (sectionQs.length === 0) return '';
-            const qs = sectionQs.map((q, localIdx) => {
-                const idx = sec.start + localIdx;
-                const isCorrect = (q.student_answer?.trim().toLowerCase() || '') === (q.correct_answer?.trim().toLowerCase() || '');
-                const optionsHTML = q.options.map((opt, i) => {
-                    const letter = String.fromCharCode(65 + i);
-                    const isCorrOpt = opt.trim().toLowerCase() === q.correct_answer.trim().toLowerCase();
-                    const isStudOpt = opt.trim().toLowerCase() === (q.student_answer || '').trim().toLowerCase();
-                    let style = '';
-                    if (isCorrOpt) style = 'color:#16a34a;font-weight:600;';
-                    if (isStudOpt && !isCorrect) style = 'color:#dc2626;font-weight:600;';
-                    return `<div style="padding:3px 0;${style}">${letter}. ${opt}${isCorrOpt ? ' ✓' : ''}${isStudOpt && !isCorrect ? ' ✗' : ''}</div>`;
-                }).join('');
-                return `
-                <div style="margin-bottom:18px;padding:14px;border:1px solid ${isCorrect ? '#22c55e' : '#ef4444'};border-radius:8px;background:${isCorrect ? '#f0fdf4' : '#fff5f5'}">
-                    <div style="font-size:12px;font-weight:700;color:${isCorrect ? '#16a34a' : '#dc2626'};margin-bottom:6px">
-                        Q${idx + 1} — ${isCorrect ? '✓ Correct' : '✗ Incorrect'}
-                    </div>
-                    <div style="font-size:14px;font-weight:600;margin-bottom:10px;color:#1a1a1a">${q.question}</div>
-                    <div style="font-size:13px;margin-bottom:10px">${optionsHTML}</div>
-                    ${!isCorrect ? `<div style="font-size:12px;color:#6b7280;margin-bottom:6px">Your answer: <span style="color:#dc2626">${q.student_answer || 'Not Answered'}</span></div>` : ''}
-                    ${q.explanation ? `<div style="font-size:12px;background:#f8fafc;border-left:3px solid #6366f1;padding:8px 10px;border-radius:4px;color:#374151"><strong>💡 Explanation:</strong> ${q.explanation}</div>` : ''}
-                </div>`;
+        const questionHTML = questions.map((q, idx) => {
+            const isCorrect = (q.student_answer?.trim().toLowerCase() || '') === (q.correct_answer?.trim().toLowerCase() || '');
+            const optionsHTML = q.options.map((opt, i) => {
+                const letter = String.fromCharCode(65 + i);
+                const isCorrOpt = opt.trim().toLowerCase() === q.correct_answer.trim().toLowerCase();
+                const isStudOpt = opt.trim().toLowerCase() === (q.student_answer || '').trim().toLowerCase();
+                let style = '';
+                if (isCorrOpt) style = 'color:#16a34a;font-weight:600;';
+                if (isStudOpt && !isCorrect) style = 'color:#dc2626;font-weight:600;';
+                return `<div style="padding:3px 0;${style}">${letter}. ${opt}${isCorrOpt ? ' ✓' : ''}${isStudOpt && !isCorrect ? ' ✗' : ''}</div>`;
             }).join('');
-            return `<div style="margin-bottom:24px"><h3 style="font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#6366f1;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:12px">${sec.label}</h3>${qs}</div>`;
+            return `
+            <div style="margin-bottom:18px;padding:14px;border:1px solid ${isCorrect ? '#22c55e' : '#ef4444'};border-radius:8px;background:${isCorrect ? '#f0fdf4' : '#fff5f5'}">
+                <div style="font-size:12px;font-weight:700;color:#6b7280;margin-bottom:6px">Q${idx + 1} — ${isCorrect ? '✓ Correct' : '✗ Incorrect'}</div>
+                <div style="font-size:14px;font-weight:600;margin-bottom:10px;color:#1a1a1a">${q.question}</div>
+                <div style="font-size:13px;margin-bottom:10px">${optionsHTML}</div>
+                ${!isCorrect ? `<div style="font-size:12px;color:#6b7280;margin-bottom:6px">Your answer: <span style="color:#dc2626">${q.student_answer || 'Not Answered'}</span></div>` : ''}
+                ${q.explanation ? `<div style="font-size:12px;background:#f8fafc;border-left:3px solid #6366f1;padding:8px 10px;border-radius:4px;color:#374151"><strong>💡 Explanation:</strong> ${q.explanation}</div>` : ''}
+            </div>`;
         }).join('');
+
+        const codingHTML = codingRound ? `
+            <div style="margin-top:30px;padding:20px;background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                <h2 style="font-size:18px;color:#6366f1;margin-bottom:12px;border-bottom:2px solid #6366f1;padding-bottom:5px;">Part 2: Coding Round Evaluation</h2>
+                <div style="font-size:14px;margin-bottom:10px;">Score: <strong>${codingRound.total_score}/100</strong> | Language: <strong>${codingRound.language}</strong></div>
+                <div style="font-size:13px;color:#334155;line-height:1.6;white-space:pre-line;">${codingRound.ai_feedback}</div>
+            </div>
+        ` : '';
 
         const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Interview Review — ${job_role_target}</title>
         <style>body{font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:30px;color:#1a1a1a;} @media print{@page{margin:20mm;}}</style>
         </head><body>
         <h1 style="font-size:22px;margin-bottom:4px">${job_role_target} — Interview Review</h1>
-        <p style="color:#6b7280;font-size:13px;margin-bottom:4px">Date: ${date} &nbsp;|&nbsp; Score: <strong>${total_score}%</strong></p>
+        <p style="color:#6b7280;font-size:13px;margin-bottom:4px">Date: ${date} &nbsp;|&nbsp; Combined Score: <strong>${codingRound ? Math.round((total_score + codingRound.total_score) / 2) : total_score}%</strong></p>
         <hr style="margin:16px 0;border-color:#e5e7eb">
-        <h2 style="font-size:16px;margin-bottom:10px">📋 Question Breakdown</h2>
-        ${questionHTML}
-        <hr style="margin:20px 0;border-color:#e5e7eb">
-        <h2 style="font-size:16px;margin-bottom:10px">🤖 AI Feedback Summary</h2>
+        <h2 style="font-size:16px;margin-bottom:10px">📋 MCQ Round Feedback (Part 1)</h2>
         <div style="font-size:13px;color:#374151;line-height:1.7;white-space:pre-line">${ai_feedback}</div>
+        <div style="margin-top:20px;">${questionHTML}</div>
+        ${codingHTML}
         </body></html>`;
 
         const win = window.open('', '_blank');
@@ -104,6 +97,7 @@ const InterviewResults = () => {
                 
                 setInterview(data.interview);
                 setQuestions(data.questions || []);
+                setCodingRound(data.codingRound || null);
             } catch (error) {
                 console.error("Failed to load interview results", error);
                 alert("Could not load interview results.");
@@ -172,10 +166,37 @@ const InterviewResults = () => {
                         animate={{ opacity: 1, x: 0 }}
                         className="feedback-only-view"
                     >
-                        <div className="feedback-section card glass-card">
+                        {/* Overall Score Summary */}
+                        <div className="unified-score-summary card glass-card mb-6">
+                            <div className="unified-score-header">
+                                <ClipboardCheck size={24} className="text-accent" />
+                                <h2>Combined Scorecard</h2>
+                            </div>
+                            <div className="unified-score-grid">
+                                <div className="score-item">
+                                    <span className="label">MCQ Round (Part 1)</span>
+                                    <span className="value">{total_score}%</span>
+                                </div>
+                                {codingRound && (
+                                    <div className="score-item">
+                                        <span className="label">Coding Round (Part 2)</span>
+                                        <span className="value">{codingRound.total_score}%</span>
+                                    </div>
+                                )}
+                                {codingRound && (
+                                    <div className="score-item total">
+                                        <span className="label">Final Interview Score</span>
+                                        <span className="value">{Math.round((total_score + codingRound.total_score) / 2)}%</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* MCQ Feedback */}
+                        <div className="feedback-section card glass-card mb-6">
                             <div className="feedback-title">
                                 <BrainCircuit size={28} className="text-accent" />
-                                <h2>AI Recruiter's Evaluation</h2>
+                                <h2>Part 1: MCQ Feedback</h2>
                             </div>
                             <div className="feedback-body">
                                 {feedbackParagraphs.map((para, i) => (
@@ -184,12 +205,33 @@ const InterviewResults = () => {
                             </div>
                         </div>
 
-                        <div className="view-actions">
+                        {/* Coding Feedback */}
+                        {codingRound && codingRound.ai_feedback && (
+                            <div className="feedback-section card glass-card">
+                                <div className="feedback-title">
+                                    <Code2 size={28} className="text-secondary" />
+                                    <h2>Part 2: Coding Feedback</h2>
+                                </div>
+                                <div className="feedback-body coding-feedback">
+                                    {codingRound.ai_feedback.split('\n').map((para: string, i: number) => (
+                                        <p key={i} className="feedback-para">{para}</p>
+                                    ))}
+                                </div>
+                                <div className="coding-meta mt-4 p-3 bg-low border-t">
+                                    <span>Language used: <strong>{codingRound.language}</strong></span>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="view-actions mt-8">
                             <button 
                                 className="neo-btn-primary explore-btn" 
                                 onClick={() => setShowDetailed(true)}
                             >
                                 <ClipboardCheck size={20} /> Review Detailed Answers <ArrowRight size={18} />
+                            </button>
+                            <button className="neo-btn-secondary" onClick={handleDownload}>
+                                <Download size={16} /> Download Full Report
                             </button>
                         </div>
                     </motion.div>

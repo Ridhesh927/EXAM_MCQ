@@ -331,7 +331,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                 </motion.div>
 
                 <style>{`
-                    .ai-modal { max-width: 700px; padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: 90vh; }
+                    .ai-modal { max-width: 850px; padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: 90vh; }
                     .modal-header { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--surface-low); }
                     .header-title { display: flex; align-items: center; gap: 0.75rem; }
                     .header-title h2 { margin: 0; font-size: 1.25rem; }

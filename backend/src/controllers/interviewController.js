@@ -2,6 +2,7 @@ const { pool } = require('../config/db');
 const Groq = require('groq-sdk');
 const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
+const notificationController = require('./notificationController');
 const logger = require('../utils/logger');
 require('dotenv').config();
 
@@ -414,7 +415,26 @@ exports.getInterviewDetails = async (req, res) => {
             return formatted;
         });
 
-        res.status(200).json({ interview: interview[0], questions: formattedQuestions });
+        // Fetch coding round results if linked
+        let codingRound = null;
+        if (interview[0].coding_id) {
+            const [codingRows] = await pool.query(
+                'SELECT * FROM coding_interviews WHERE id = ?',
+                [interview[0].coding_id]
+            );
+            if (codingRows.length > 0) {
+                codingRound = codingRows[0];
+                // Support mysql2 auto-parsing and manual parsing fallback
+                codingRound.questions = typeof codingRound.questions === 'string' ? JSON.parse(codingRound.questions) : codingRound.questions;
+                codingRound.student_codes = typeof codingRound.student_codes === 'string' ? JSON.parse(codingRound.student_codes) : codingRound.student_codes;
+            }
+        }
+
+        res.status(200).json({ 
+            interview: interview[0], 
+            questions: formattedQuestions,
+            codingRound 
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -492,6 +512,15 @@ exports.submitInterview = async (req, res) => {
         // Return coding_id so the frontend can chain into the coding round
         const [updatedInterview] = await pool.query('SELECT coding_id FROM interviews WHERE id = ?', [id]);
         const codingId = updatedInterview[0]?.coding_id || null;
+
+        // Trigger Notification
+        notificationController.createNotification(
+            studentId,
+            'student',
+            'Interview Evaluation Complete',
+            `Your AI interview evaluation has been graded. Final Score: ${scorePercentage}%.`,
+            `/student/results`
+        );
 
         res.status(200).json({
             message: 'Interview submitted successfully.',

@@ -4,20 +4,22 @@ import {
     Plus,
     Search,
     MoreVertical,
-    Users,
     Calendar,
     Layers,
     Trash2,
     Edit,
-    Clock,
-    Loader2
+    Clock
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../utils/api';
+import { CardSkeleton } from '../../components/Skeleton';
+import { getUser } from '../../utils/auth';
 
 const ManageExams = () => {
     const navigate = useNavigate();
+    const user = getUser('teacher');
+    const isMainAdmin = user?.isMainAdmin;
     const [exams, setExams] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -57,6 +59,7 @@ const ManageExams = () => {
         const matchesStatus = statusFilter === 'All' ||
             (statusFilter === 'Active' && (exam.status === 'Published' || isScheduledActive)) ||
             (statusFilter === 'Draft' && exam.status === 'Draft') ||
+            (statusFilter === 'Completed' && exam.status === 'Completed') ||
             (statusFilter === 'Scheduled' && isScheduledFuture);
         return matchesSearch && matchesStatus;
     });
@@ -141,7 +144,7 @@ const ManageExams = () => {
                         />
                     </div>
                     <div className="filter-group">
-                        {['All', 'Active', 'Draft', 'Scheduled'].map(status => (
+                        {['All', 'Active', 'Draft', 'Scheduled', 'Completed'].map(status => (
                             <button
                                 key={status}
                                 className={`filter-tab ${statusFilter === status ? 'active' : ''}`}
@@ -155,9 +158,8 @@ const ManageExams = () => {
 
                 <div className="exams-inventory">
                     {loading ? (
-                        <div className="loading-state">
-                            <Loader2 className="animate-spin text-accent" size={32} />
-                            <p>Loading exams...</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '2rem' }}>
+                            {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
                         </div>
                     ) : filteredExams.length === 0 ? (
                         <div className="empty-state">
@@ -200,8 +202,9 @@ const ManageExams = () => {
                                 <div className="item-status">
                                     {(() => {
                                         const isActive = exam.status === 'Published' || (exam.status === 'Scheduled' && exam.scheduled_start && new Date(exam.scheduled_start) <= new Date());
-                                        const badgeClass = isActive ? 'published' : (exam.status ? exam.status.toLowerCase() : 'draft');
-                                        const displayText = isActive ? 'Active' : (exam.status || 'Draft');
+                                        const isCompleted = exam.status === 'Completed';
+                                        const badgeClass = isCompleted ? 'completed' : (isActive ? 'published' : (exam.status ? exam.status.toLowerCase() : 'draft'));
+                                        const displayText = isCompleted ? 'Completed' : (isActive ? 'Active' : (exam.status || 'Draft'));
                                         return (
                                             <span className={`status-pill ${badgeClass}`}>
                                                 {displayText}
@@ -225,19 +228,28 @@ const ManageExams = () => {
                                                     transition={{ duration: 0.2 }}
                                                     className="action-dropdown"
                                                 >
-                                                    <button onClick={() => handleEdit(exam.id)} className="dropdown-item">
-                                                        <Edit size={16} /> Edit Exam
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleSchedule(exam.id)}
-                                                        className="dropdown-item"
-                                                    >
-                                                        <Clock size={16} /> {(exam.status === 'Scheduled' && (!exam.scheduled_start || new Date(exam.scheduled_start) > new Date())) ? 'Reschedule' : 'Schedule'}
-                                                    </button>
-                                                    <div className="dropdown-divider"></div>
-                                                    <button onClick={() => handleDelete(exam.id)} className="dropdown-item danger">
-                                                        <Trash2 size={16} /> Delete Exam
-                                                    </button>
+                                                    {(exam.teacher_id === user?.id || isMainAdmin) && (
+                                                        <>
+                                                            <button onClick={() => handleEdit(exam.id)} className="dropdown-item">
+                                                                <Edit size={16} /> Edit Exam
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleSchedule(exam.id)}
+                                                                className="dropdown-item"
+                                                            >
+                                                                <Clock size={16} /> {(exam.status === 'Scheduled' && (!exam.scheduled_start || new Date(exam.scheduled_start) > new Date())) ? 'Reschedule' : 'Schedule'}
+                                                            </button>
+                                                            <div className="dropdown-divider"></div>
+                                                            <button onClick={() => handleDelete(exam.id)} className="dropdown-item danger">
+                                                                <Trash2 size={16} /> Delete Exam
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    {exam.teacher_id !== user?.id && !isMainAdmin && (
+                                                        <button className="dropdown-item" disabled>
+                                                            <Edit size={16} /> View Only
+                                                        </button>
+                                                    )}
                                                 </motion.div>
                                             )}
                                         </AnimatePresence>
@@ -267,15 +279,15 @@ const ManageExams = () => {
                             >
                                 <div className="modal-header">
                                     <Trash2 size={48} className="text-error" />
-                                    <h2>Delete Exam?</h2>
-                                    <p>This action cannot be undone. All exam data, student submissions, and results will be permanently deleted.</p>
+                                    <h2>Archive Exam?</h2>
+                                    <p>The exam will be removed from active lists, but all associated results and analytics will be preserved for future reference.</p>
                                 </div>
                                 <div className="modal-actions">
                                     <button onClick={() => setShowDeleteModal(false)} className="modal-btn modal-btn-cancel">
                                         Cancel
                                     </button>
                                     <button onClick={confirmDelete} className="modal-btn modal-btn-delete">
-                                        <Trash2 size={18} /> Delete Permanently
+                                        <Trash2 size={18} /> Archive Exam
                                     </button>
                                 </div>
                             </motion.div>
@@ -358,6 +370,7 @@ const ManageExams = () => {
           .status-pill.active, .status-pill.published { background: rgba(16, 185, 129, 0.1); color: #10b981; }
           .status-pill.draft { background: rgba(251, 191, 36, 0.1); color: #fbbf24; }
           .status-pill.scheduled { background: rgba(96, 165, 250, 0.1); color: #60a5fa; }
+          .status-pill.completed { background: rgba(107, 114, 128, 0.1); color: #6b7280; }
           
           /* Action Menu */
           .action-menu-wrapper {

@@ -1,19 +1,17 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookCheck, ArrowRight, Loader2 } from 'lucide-react';
+import { BookCheck, ArrowRight } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
 import { getToken } from '../../utils/auth';
+import { DashboardStatsSkeleton } from '../../components/Skeleton';
 import './StudentDashboard.css';
 
 import AvailableExams from './AvailableExams';
 
-
-
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const [exams, setExams] = useState<any[]>([]);
-
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,25 +48,29 @@ const StudentDashboard = () => {
           </motion.div>
         </header>
 
-        <div className="stats-grid">
-          {[
-            { label: 'Exams Available', value: loading ? '...' : exams.length, icon: <BookCheck />, color: 'var(--accent)' },
-          ].map((stat, i) => (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="neo-card stat-card"
-            >
-              <div className="stat-icon" style={{ color: stat.color }}>{stat.icon}</div>
-              <div className="stat-content">
-                <span className="stat-label">{stat.label}</span>
-                <span className="stat-value">{stat.value}</span>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        {loading ? (
+          <DashboardStatsSkeleton />
+        ) : (
+          <div className="stats-grid">
+            {[
+              { label: 'Exams Available', value: exams.length, icon: <BookCheck />, color: 'var(--accent)' },
+            ].map((stat, i) => (
+              <motion.div
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="neo-card stat-card"
+              >
+                <div className="stat-icon" style={{ color: stat.color }}>{stat.icon}</div>
+                <div className="stat-content">
+                  <span className="stat-label">{stat.label}</span>
+                  <span className="stat-value">{stat.value}</span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
 
         <section className="dashboard-section">
           <div className="section-header">
@@ -77,19 +79,7 @@ const StudentDashboard = () => {
           </div>
 
           <div className="exam-quick-list">
-            {loading ? (
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                <Loader2 className="animate-spin" size={24} /> Loading exams...
-              </div>
-            ) : exams.length === 0 ? (
-              <div className="neo-card" style={{ padding: '2rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-                No exams available at the moment. Check back soon!
-              </div>
-            ) : (
-              <>
-                <AvailableExams standalone={false} />
-              </>
-            )}
+            <AvailableExams standalone={false} />
           </div>
         </section>
 
