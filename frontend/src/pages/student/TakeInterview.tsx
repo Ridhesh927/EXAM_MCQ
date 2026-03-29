@@ -40,6 +40,13 @@ const TakeInterview = () => {
         fetchInterviewData();
     }, [id]);
 
+    useEffect(() => {
+        document.body.classList.add('interview-solid-bg');
+        return () => {
+            document.body.classList.remove('interview-solid-bg');
+        };
+    }, []);
+
     const fetchInterviewData = async () => {
         try {
             const response = await apiFetch(`/api/interview/${id}`);

@@ -2,11 +2,30 @@ const { pool } = require('../config/db');
 const xlsx = require('xlsx');
 const logger = require('../utils/logger');
 
+const normalizeDifficulty = (value) => {
+    const v = String(value || '').trim().toLowerCase();
+    if (v === 'easy') return 'Easy';
+    if (v === 'high' || v === 'hard') return 'High';
+    return 'Medium';
+};
+
 // Create Exam
 exports.createExam = async (req, res) => {
     try {
         const { title, subject, duration, total_marks, passing_marks, instructions, questions, target_department, target_year, status, scheduled_start, expires_at } = req.body;
         const teacher_id = req.user.id;
+        const createdByTeacherId = req.user.isMainAdmin ? null : teacher_id;
+
+        // Main admin has id=0 and no teachers row, so skip FK by storing NULL.
+        // For regular teachers, fail early with a clear auth/session message.
+        if (!req.user.isMainAdmin) {
+            const [teacherRows] = await pool.query('SELECT id FROM teachers WHERE id = ?', [teacher_id]);
+            if (!teacherRows.length) {
+                return res.status(401).json({
+                    error: 'Teacher account not found for current session. Please log in again.'
+                });
+            }
+        }
 
         if (!expires_at) {
             return res.status(400).json({ error: 'Expiration date (expires_at) is required.' });
@@ -25,14 +44,19 @@ exports.createExam = async (req, res) => {
 
             const [examResult] = await connection.query(
                 'INSERT INTO exams (title, subject, duration, total_marks, passing_marks, instructions, teacher_id, target_department, target_year, status, scheduled_start, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [title, subject, duration, finalTotalMarks, passing_marks, instructions, teacher_id, target_department || null, target_year || null, status || 'Published', scheduled_start || null, expires_at]
+                [title, subject, duration, finalTotalMarks, passing_marks, instructions, createdByTeacherId, target_department || null, target_year || null, status || 'Published', scheduled_start || null, expires_at]
             );
 
             const examId = examResult.insertId;
 
             if (questions && questions.length > 0) {
                 const questionValues = questions.map(q => [
-                    examId, q.question, JSON.stringify(q.options), q.correct_answer, q.marks, q.difficulty
+                    examId,
+                    q.question,
+                    JSON.stringify(q.options),
+                    q.correct_answer,
+                    q.marks,
+                    normalizeDifficulty(q.difficulty)
                 ]);
                 await connection.query(
                     'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty) VALUES ?',
@@ -42,7 +66,12 @@ exports.createExam = async (req, res) => {
 
             await connection.commit();
 
-            logger('CREATE_EXAM', `Teacher ID ${teacher_id} created exam: ${title}`, { examId, subject });
+            logger('CREATE_EXAM', `Teacher ID ${teacher_id} created exam: ${title}`, {
+                examId,
+                subject,
+                createdByTeacherId,
+                isMainAdmin: !!req.user.isMainAdmin
+            });
 
             // Trigger Notifications for Students (Async)
             if (status === 'Published' || !status) {
@@ -179,7 +208,7 @@ exports.updateExam = async (req, res) => {
                     const optionsString = typeof q.options === 'string' ? q.options : JSON.stringify(q.options);
                     const correctAnswer = q.correct_answer !== undefined ? q.correct_answer : (q.correct !== undefined ? q.correct : 0);
                     const marks = q.marks !== undefined ? q.marks : 5;
-                    const difficulty = q.difficulty || 'medium';
+                    const difficulty = normalizeDifficulty(q.difficulty);
                     return [id, questionText, optionsString, correctAnswer, marks, difficulty];
                 });
                 await connection.query(

@@ -85,10 +85,11 @@ exports.uploadResume = async (req, res) => {
              return res.status(400).json({ message: 'Could not extract text from the uploaded file.' });
         }
 
-        // Optional: Use AI to quickly summarize structured skills from the raw text
         const summarizePrompt = `
-        Extract a brief structured summary of the core technical skills, programming languages, and frameworks from the following resume text. 
-        Format the output strictly as a JSON array of strings. e.g. ["React", "Node.js", "Python", "SQL"].
+        Analyze the following resume text.
+        1. Extract a brief structured summary of the core technical skills.
+        2. Suggest 2-3 suitable job role titles (careers) based on these skills.
+        Format the output strictly as a JSON object with two keys: "skills" (array of strings) and "roles" (array of strings). e.g. {"skills": ["React", "Node.js"], "roles": ["Frontend Developer", "Full Stack Engineer"]}.
         
         Resume Text:
         """
@@ -97,37 +98,49 @@ exports.uploadResume = async (req, res) => {
         `;
 
         let parsedSkills = [];
+        let parsedRoles = [];
         try {
              const chatCompletion = await groq.chat.completions.create({
                 messages: [{ role: 'user', content: summarizePrompt }],
                 model: 'llama-3.1-8b-instant',
                 temperature: 0.1,
+                max_tokens: 1024,
                 response_format: { type: 'json_object' }
             });
             const AIResponse = JSON.parse(chatCompletion.choices[0]?.message?.content || '{}');
             
             // Handle different possible JSON shapes the AI might return
-            if (Array.isArray(AIResponse)) {
-                parsedSkills = AIResponse;
-            } else if (AIResponse.skills && Array.isArray(AIResponse.skills)) {
+            if (AIResponse.skills && Array.isArray(AIResponse.skills)) {
                 parsedSkills = AIResponse.skills;
+            } else if (Array.isArray(AIResponse)) {
+                parsedSkills = AIResponse;
             } else {
                 // fallback extraction
                 parsedSkills = Object.values(AIResponse).flat().filter(i => typeof i === 'string');
+            }
+            
+            if (AIResponse.roles && Array.isArray(AIResponse.roles)) {
+                parsedRoles = AIResponse.roles;
             }
         } catch (aiErr) {
             logger('WARN', 'AI failed to summarize skills, saving raw text only', { error: aiErr.message });
         }
 
+        const dbStoredJson = {
+            skills: parsedSkills,
+            roles: parsedRoles
+        };
+
         // Save to Database
         await pool.query(
             'UPDATE students SET resume_text = ?, parsed_skills = ? WHERE id = ?',
-            [resumeText, JSON.stringify(parsedSkills), studentId]
+            [resumeText, JSON.stringify(dbStoredJson), studentId]
         );
 
         res.status(200).json({ 
             message: 'Resume parsed and saved successfully.', 
-            skills: parsedSkills 
+            skills: parsedSkills,
+            roles: parsedRoles
         });
 
     } catch (error) {
@@ -169,7 +182,7 @@ exports.generateInterview = async (req, res) => {
 
         // Fetch Student Data
         const [students] = await pool.query(
-            'SELECT resume_text, year FROM students WHERE id = ?',
+            'SELECT resume_text, parsed_skills, year FROM students WHERE id = ?',
             [studentId]
         );
 
@@ -179,7 +192,24 @@ exports.generateInterview = async (req, res) => {
 
         const resume = students[0].resume_text;
         const studentYear = students[0].year || 'Final Year';
-        const performanceLevel = 'Intermediate'; // Default level
+        let resumeSkills = [];
+        let resumeRoles = [];
+
+        try {
+            const parsedSkillsRaw = students[0].parsed_skills;
+            if (parsedSkillsRaw) {
+                const parsed = typeof parsedSkillsRaw === 'string' ? JSON.parse(parsedSkillsRaw) : parsedSkillsRaw;
+                if (Array.isArray(parsed?.skills)) resumeSkills = parsed.skills.filter(s => typeof s === 'string');
+                if (Array.isArray(parsed?.roles)) resumeRoles = parsed.roles.filter(r => typeof r === 'string');
+            }
+        } catch (parseErr) {
+            logger('WARN', 'Failed to parse stored resume skills JSON', { studentId, error: parseErr.message });
+        }
+
+        const topResumeSkills = resumeSkills.slice(0, 8);
+        const topSuggestedRoles = resumeRoles.slice(0, 3);
+        const resumeSkillsText = topResumeSkills.length > 0 ? topResumeSkills.join(', ') : 'No explicit skills extracted';
+        const suggestedRolesText = topSuggestedRoles.length > 0 ? topSuggestedRoles.join(', ') : 'No role suggestions available';
 
         logger('INFO', `Generating 15-question interview for student ${studentId}`, { role: jobRoleTarget });
 
@@ -269,8 +299,20 @@ exports.generateInterview = async (req, res) => {
                 IMPORTANT: Your PRIMARY focus is the job role "${jobRoleTarget}". Ask questions specifically about:
                 ${domainTopics}
 
-                Candidate resume (for personalization only — do NOT restrict questions to resume content):
+                Candidate resume (for personalization):
                 ${resume.substring(0, 1500)}
+
+                Extracted resume skills (highest confidence):
+                ${resumeSkillsText}
+
+                AI-suggested role matches from resume:
+                ${suggestedRolesText}
+
+                Personalization rules you MUST follow for these 5 Technical & Domain questions:
+                - At least 3 questions must be tightly aligned to "${jobRoleTarget}" day-to-day skills.
+                - At least 2 questions must directly use technologies/skills present in resume skills, when relevant to the role.
+                - At least 1 question should probe a likely gap between resume focus and target-role requirements.
+                - Keep the set balanced: do not generate all 5 from one single tool/framework.
 
                 All 5 questions MUST be directly relevant to the day-to-day work of a "${jobRoleTarget}".`
             }
@@ -368,13 +410,21 @@ exports.getInterviews = async (req, res) => {
         
         // MySQL 2 automatically parses JSON columns. Handle both string and pre-parsed array:
         let parsedSkills = [];
+        let suggestedRoles = [];
         if (student[0]?.parsed_skills) {
-            parsedSkills = typeof student[0].parsed_skills === 'string' 
+            let data = typeof student[0].parsed_skills === 'string' 
                 ? JSON.parse(student[0].parsed_skills) 
                 : student[0].parsed_skills;
+                
+            if (Array.isArray(data)) {
+                parsedSkills = data;
+            } else if (data && typeof data === 'object') {
+                parsedSkills = data.skills || [];
+                suggestedRoles = data.roles || [];
+            }
         }
 
-        res.status(200).json({ interviews, hasResume, parsedSkills });
+        res.status(200).json({ interviews, hasResume, parsedSkills, suggestedRoles });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

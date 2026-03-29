@@ -223,6 +223,9 @@ const ManageTeachers = () => {
                             accept=".csv, .xlsx, .xls"
                             onChange={handleFileUpload}
                         />
+                        <a href="/teacher_template.csv" download className="neo-btn-secondary" style={{ textDecoration: 'none' }}>
+                            <FileSpreadsheet size={18} /> Template
+                        </a>
                         <button className="neo-btn-secondary" onClick={() => fileInputRef.current?.click()}>
                             <FileSpreadsheet size={18} /> Import CSV/Excel
                         </button>

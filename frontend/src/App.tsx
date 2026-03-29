@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { Routes, Route } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import ThemeToggle from './components/ThemeToggle';
 import Skeleton from './components/Skeleton';
@@ -45,12 +46,20 @@ const PageLoader = () => (
 );
 
 function App() {
+  const location = useLocation();
+  const isDashboardRoute =
+    location.pathname.startsWith('/student/') ||
+    location.pathname.startsWith('/teacher/') ||
+    location.pathname.startsWith('/admin/');
+
   return (
     <ThemeProvider>
       <div className="app-container">
-        <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }}>
-          <ThemeToggle />
-        </div>
+        {!isDashboardRoute && (
+          <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }}>
+            <ThemeToggle />
+          </div>
+        )}
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Landing />} />

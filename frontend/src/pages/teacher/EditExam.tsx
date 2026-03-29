@@ -65,7 +65,7 @@ const EditExam = () => {
                         options: q.options || ['', '', '', ''],
                         correct: q.correct || 0,
                         marks: q.marks || 5,
-                        difficulty: q.difficulty || 'medium'
+                        difficulty: q.difficulty || 'Medium'
                     }))
                 });
             } catch (err) {
@@ -138,7 +138,7 @@ const EditExam = () => {
                     options: q.options,
                     correct_answer: q.correct,
                     marks: 5,
-                    difficulty: 'medium'
+                    difficulty: 'Medium'
                 })),
                 status: status
             };
@@ -327,6 +327,39 @@ const EditExam = () => {
                                 </div>
 
                                 <div className="questions-list">
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                        <button className="add-q-btn" onClick={addQuestion}>
+                                            <Plus size={20} /> Add New Inquiry
+                                        </button>
+                                        <button
+                                            className="add-q-btn"
+                                            style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                                            onClick={() => setShowAIModal(true)}
+                                        >
+                                            <Sparkles size={20} /> Generate with AI
+                                        </button>
+                                    </div>
+
+                                    <div className="bulk-import-container">
+                                        <div className="bulk-import-lite">
+                                            <Upload size={18} />
+                                            <span>Import questions from CSV/Excel</span>
+                                            <input
+                                                type="file"
+                                                accept=".csv, .xlsx, .xls"
+                                                onChange={handleFileUpload}
+                                                style={{ opacity: 0, position: 'absolute', width: '100%', cursor: 'pointer' }}
+                                            />
+                                        </div>
+                                        <a
+                                            href="/question_template.csv"
+                                            download
+                                            className="template-link"
+                                        >
+                                            <Download size={14} /> Download Template
+                                        </a>
+                                    </div>
+
                                     {examData.questions.map((q, i) => (
                                         <div key={i} className="question-editor neo-card">
                                             <div className="q-edit-header">
@@ -364,39 +397,6 @@ const EditExam = () => {
                                             </div>
                                         </div>
                                     ))}
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                        <button className="add-q-btn" onClick={addQuestion}>
-                                            <Plus size={20} /> Add New Inquiry
-                                        </button>
-                                        <button
-                                            className="add-q-btn"
-                                            style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
-                                            onClick={() => setShowAIModal(true)}
-                                        >
-                                            <Sparkles size={20} /> Generate with AI
-                                        </button>
-                                    </div>
-
-                                    <div className="bulk-import-container">
-                                        <div className="bulk-import-lite">
-                                            <Upload size={18} />
-                                            <span>Import questions from CSV/Excel</span>
-                                            <input
-                                                type="file"
-                                                accept=".csv, .xlsx, .xls"
-                                                onChange={handleFileUpload}
-                                                style={{ opacity: 0, position: 'absolute', width: '100%', cursor: 'pointer' }}
-                                            />
-                                        </div>
-                                        <a
-                                            href="/question_template.csv"
-                                            download
-                                            className="template-link"
-                                        >
-                                            <Download size={14} /> Download Template
-                                        </a>
-                                    </div>
                                 </div>
                             </motion.div>
                         )}

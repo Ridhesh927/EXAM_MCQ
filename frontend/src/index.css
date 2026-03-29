@@ -82,6 +82,11 @@ body {
   background-blend-mode: soft-light;
 }
 
+body.interview-solid-bg {
+  background-color: #000;
+  background-image: none;
+}
+
 h1,
 h2,
 h3,

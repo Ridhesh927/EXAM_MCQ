@@ -13,6 +13,7 @@ interface CodingQuestion {
 
 interface CodingRound {
     id: number;
+    parent_interview_id?: number;
     questions: CodingQuestion[];
     student_codes: { q1: string; q2: string };
     language: string;
@@ -112,6 +113,24 @@ const CodingResults = () => {
                 </div>
             </header>
 
+            <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '10px', marginBottom: '20px' }}>
+                {round.parent_interview_id && (
+                    <button 
+                        className="neo-btn-primary" 
+                        onClick={() => navigate(`/student/interview/result/${round.parent_interview_id}`)}
+                        style={{ background: '#10b981', borderColor: '#059669', color: '#fff' }}
+                    >
+                        <BrainCircuit size={16} /> View MCQ Report
+                    </button>
+                )}
+                <button className="neo-btn-primary" onClick={handleDownload}>
+                    <Download size={16} /> Download Report
+                </button>
+                <button className="neo-btn-secondary" onClick={() => navigate('/student/dashboard')}>
+                    Finish Review
+                </button>
+            </div>
+
             {/* Code Review Section */}
             <div className="results-body">
                 <div className="code-review-card card">
@@ -155,14 +174,7 @@ const CodingResults = () => {
                 </div>
             </div>
 
-            <div className="results-footer">
-                <button className="neo-btn-secondary" onClick={() => navigate('/student/dashboard')}>
-                    Finish Review
-                </button>
-                <button className="neo-btn-primary" onClick={handleDownload}>
-                    <Download size={16} /> Download Report
-                </button>
-            </div>
+
         </motion.div>
     );
 };

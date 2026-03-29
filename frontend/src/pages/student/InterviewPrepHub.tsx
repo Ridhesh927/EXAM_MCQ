@@ -24,6 +24,7 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
     const [interviews, setInterviews] = useState<Interview[]>([]);
     const [hasResume, setHasResume] = useState(false);
     const [parsedSkills, setParsedSkills] = useState<string[]>([]);
+    const [suggestedRoles, setSuggestedRoles] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     
     // Upload State
@@ -37,6 +38,7 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
     const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
     const [isGenerating, setIsGenerating] = useState(false);
     const [activeTab, setActiveTab] = useState<'practice' | 'history' | 'analytics'>('practice');
+    const [activePracticeTab, setActivePracticeTab] = useState<'resume' | 'interview' | 'coding'>('resume');
     const [expandedInterview, setExpandedInterview] = useState<number | null>(null);
 
     // Coding Round State
@@ -65,9 +67,14 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                 }
             });
             const data = await response.json();
-            setInterviews(data.interviews || []);
+            
+            // Filter out in-progress (unsubmitted) interviews
+            const completedInterviews = (data.interviews || []).filter((i: any) => i.ai_feedback !== null);
+            setInterviews(completedInterviews);
+            
             setHasResume(data.hasResume);
             setParsedSkills(data.parsedSkills || []);
+            setSuggestedRoles(data.suggestedRoles || []);
         } catch (error) {
             console.error("Failed to load interview history", error);
         } finally {
@@ -112,6 +119,7 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
 
             setHasResume(true);
             setParsedSkills(data.skills || []);
+            setSuggestedRoles(data.roles || []);
         } catch (error: any) {
             setUploadError(error.message);
         } finally {
@@ -148,6 +156,8 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
     if (isLoading) {
         return <div className="loading-state"><Loader2 className="animate-spin" size={32} /></div>;
     }
+
+    const personalizationHighlights = parsedSkills.slice(0, 4);
 
     const content = (
         <motion.div 
@@ -186,66 +196,120 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                 {activeTab === 'practice' && (
                     <div className="practice-view-grid animate-fade-in">
                         <div className="hub-sidebar">
-                            <div className="card profile-card">
-                                <h3>Your Resume Profile</h3>
-                                
-                                {hasResume ? (
-                                    <div className="resume-active">
-                                        <div className="status-badge success">
-                                            <CheckCircle size={16} /> Resume Processed
-                                        </div>
-                                        
-                                        {parsedSkills.length > 0 && (
-                                            <div className="skills-container">
-                                                <h4>Detected Skills:</h4>
-                                                <div className="skills-tags">
-                                                    {parsedSkills.map((skill, i) => (
-                                                        <span key={i} className="skill-tag">{skill}</span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                        
+                            <div className="practice-sub-tabs">
+                                <button 
+                                    className={`sub-tab ${activePracticeTab === 'resume' ? 'active' : ''}`}
+                                    onClick={() => setActivePracticeTab('resume')}
+                                >
+                                    Resume Profile
+                                </button>
+                                {hasResume && (
+                                    <>
                                         <button 
-                                            className="neo-btn-secondary text-sm mt-4"
-                                            onClick={() => fileInputRef.current?.click()}
-                                            disabled={isUploading}
+                                            className={`sub-tab ${activePracticeTab === 'interview' ? 'active' : ''}`}
+                                            onClick={() => setActivePracticeTab('interview')}
                                         >
-                                            {isUploading ? <Loader2 className="animate-spin" size={16} /> : 'Update Resume'}
+                                            Mock Interview
                                         </button>
-                                    </div>
-                                ) : (
-                                    <div className="resume-upload">
-                                        <p>Upload your latest CV to let the AI analyze your background.</p>
-                                        <div 
-                                            className="upload-zone"
-                                            onClick={() => fileInputRef.current?.click()}
+                                        <button 
+                                            className={`sub-tab ${activePracticeTab === 'coding' ? 'active' : ''}`}
+                                            onClick={() => setActivePracticeTab('coding')}
                                         >
-                                            {isUploading ? (
-                                                <Loader2 className="animate-spin" size={32} />
-                                            ) : (
-                                                <>
-                                                    <Upload size={32} />
-                                                    <span>Click to upload PDF/Image</span>
-                                                </>
-                                            )}
-                                        </div>
-                                        {uploadError && <p className="error-text">{uploadError}</p>}
-                                    </div>
+                                            Coding Round
+                                        </button>
+                                    </>
                                 )}
-
-                                <input 
-                                    type="file" 
-                                    ref={fileInputRef} 
-                                    onChange={handleFileChange} 
-                                    accept=".pdf,image/*" 
-                                    style={{ display: 'none' }}
-                                />
                             </div>
 
-                            {hasResume && (
-                                <div className="card generate-card">
+                            {activePracticeTab === 'resume' && (
+                                <div className="card profile-card animate-fade-in">
+                                    <h3>Your Resume Profile</h3>
+                                    
+                                    {hasResume ? (
+                                        <div className="resume-active">
+                                            <div className="status-badge success">
+                                                <CheckCircle size={16} /> Resume Processed
+                                            </div>
+                                            
+                                            {parsedSkills.length > 0 && (
+                                                <div className="skills-container">
+                                                    <h4>Detected Skills:</h4>
+                                                    <div className="skills-tags">
+                                                        {parsedSkills.map((skill, i) => (
+                                                            <span key={i} className="skill-tag">{skill}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {suggestedRoles.length > 0 && (
+                                                <div className="skills-container mt-4">
+                                                    <h4>Suggested Career Paths:</h4>
+                                                    <div className="skills-tags">
+                                                        {suggestedRoles.map((role, i) => (
+                                                            <span key={i} className="skill-tag role-tag">{role}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            <button 
+                                                className="neo-btn-secondary text-sm mt-4"
+                                                onClick={() => fileInputRef.current?.click()}
+                                                disabled={isUploading}
+                                            >
+                                                {isUploading ? <Loader2 className="animate-spin" size={16} /> : 'Update Resume'}
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="resume-upload">
+                                            <p>Upload your resume to enable Personalized Mode (resume + target role). The generated MCQs will adapt to your profile and role expectations.</p>
+                                            <div 
+                                                className="upload-zone"
+                                                onClick={() => fileInputRef.current?.click()}
+                                            >
+                                                {isUploading ? (
+                                                    <Loader2 className="animate-spin" size={32} />
+                                                ) : (
+                                                    <>
+                                                        <Upload size={32} />
+                                                        <span>Click to upload PDF/Image</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                            {uploadError && <p className="error-text">{uploadError}</p>}
+                                        </div>
+                                    )}
+
+                                    <input 
+                                        type="file" 
+                                        ref={fileInputRef} 
+                                        onChange={handleFileChange} 
+                                        accept=".pdf,image/*" 
+                                        style={{ display: 'none' }}
+                                    />
+                                </div>
+                            )}
+
+                            {activePracticeTab === 'interview' && hasResume && (
+                                <div className="card generate-card animate-fade-in">
                                     <h3>Start New Mock Interview</h3>
+                                    <div className="personalized-badge">
+                                        <Sparkles size={14} /> Personalized Mode: Resume + Target Role
+                                    </div>
+                                    <p className="personalized-note">
+                                        We use your resume to calibrate depth and skill coverage, then generate role-focused questions for <strong>{targetRole || 'your chosen role'}</strong>.
+                                    </p>
+                                    {personalizationHighlights.length > 0 && (
+                                        <div className="personalized-skills">
+                                            <span>Resume signals used:</span>
+                                            <div className="skills-tags">
+                                                {personalizationHighlights.map((skill, i) => (
+                                                    <span key={i} className="skill-tag">{skill}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="form-group">
                                         <label>Target Job Role</label>
                                         <input 
@@ -289,8 +353,8 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                 </div>
                             )}
 
-                            {hasResume && (
-                                <div className="card generate-card coding-round-card">
+                            {activePracticeTab === 'coding' && hasResume && (
+                                <div className="card generate-card coding-round-card animate-fade-in">
                                     <div className="coding-card-header">
                                         <Code2 size={20} className="text-accent" />
                                         <h3>DSA Coding Round</h3>
@@ -347,7 +411,7 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                     <Sparkles size={20} className="text-accent" />
                                     <div>
                                         <strong>Pro Tip:</strong>
-                                        <p>Tailor your "Target Job Role" to the specific position you're applying for. The AI will generate 20 custom questions (5 DSA, 5 Logical, 5 Verbal, 5 Technical) based on that role and your CV.</p>
+                                        <p>Tailor your "Target Job Role" to the specific position you're applying for. Personalized Mode blends role expectations with resume evidence, then generates 20 custom questions (5 DSA, 5 Logical, 5 Verbal, 5 Technical).</p>
                                     </div>
                                 </div>
                                 <div className="session-summary mt-8">

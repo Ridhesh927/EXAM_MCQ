@@ -105,6 +105,12 @@
     font-weight: 500;
 }
 
+.skill-tag.role-tag {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--accent);
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
 /* Tabs Navigation */
 .hub-tabs {
     display: flex;
@@ -147,6 +153,41 @@
     height: 3px;
     background: var(--accent);
     border-radius: 3px 3px 0 0;
+}
+
+/* Practice Sub Tabs */
+.practice-sub-tabs {
+    display: flex;
+    gap: 0.5rem;
+    background: var(--surface-low);
+    padding: 0.5rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+}
+
+.sub-tab {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 0.75rem 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.sub-tab:hover {
+    color: var(--text-primary);
+    background: var(--surface-high);
+}
+
+.sub-tab.active {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--accent);
+    border: 1px solid rgba(99, 102, 241, 0.2);
 }
 
 /* Practice View Grid */
@@ -378,6 +419,45 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+}
+
+.personalized-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: fit-content;
+    padding: 0.35rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(217, 119, 6, 0.14);
+    border: 1px solid rgba(217, 119, 6, 0.35);
+    color: var(--accent);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.personalized-note {
+    margin: 0;
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.personalized-skills {
+    padding: 0.75rem;
+    border-radius: var(--radius-sm);
+    background: var(--surface-low);
+    border: 1px solid var(--border);
+}
+
+.personalized-skills > span {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
 }
 
 /* Coding Round Card */

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { getUser, clearAuth } from '../utils/auth';
 import { apiFetch } from '../utils/api';
+import ThemeToggle from '../components/ThemeToggle';
 
 
 
@@ -201,6 +202,10 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
                 </AnimatePresence>
               </div>
 
+            <div className="theme-toggle-slot">
+              <ThemeToggle variant="header" />
+            </div>
+
             <div className="dropdown-container">
               <div
                 className="user-profile-brief clickable"
@@ -363,13 +368,34 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
         .header-actions {
           display: flex;
           align-items: center;
-          gap: 2rem;
+          gap: 1rem;
+        }
+
+        .theme-toggle-slot {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-left: 0.25rem;
         }
 
         .icon-btn {
-          background: none;
+          width: 36px;
+          height: 36px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: var(--radius-sm);
+          border: 1px solid transparent;
+          background: transparent;
           color: var(--text-secondary);
           position: relative;
+          flex-shrink: 0;
+        }
+
+        .icon-btn:hover {
+          color: var(--accent);
+          background: var(--surface-high);
+          border-color: var(--border);
         }
 
         .notification-dot {
@@ -483,11 +509,14 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
 
         .dropdown-container {
             position: relative;
+          display: flex;
+          align-items: center;
         }
 
         .icon-btn.active {
             color: var(--accent);
             background: var(--surface-high);
+          border-color: var(--border);
         }
 
         .user-profile-brief.clickable {

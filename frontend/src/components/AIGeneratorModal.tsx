@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, Loader2, Plus, Trash2, Upload, FileText, ImageIcon } from 'lucide-react';
 import { getToken } from '../utils/auth';
@@ -35,6 +35,17 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
     const [error, setError] = useState('');
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const originalBodyOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+
+        return () => {
+            document.body.style.overflow = originalBodyOverflow;
+        };
+    }, [isOpen]);
 
     const handleGenerate = async () => {
         if (!context.trim() && !selectedFile && !category.trim()) {
@@ -126,7 +137,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
 
     return (
         <AnimatePresence>
-            <div className="modal-overlay" onClick={onClose}>
+            <div className="modal-overlay ai-modal-overlay" onClick={onClose}>
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95, y: 20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -139,7 +150,9 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                             <Sparkles className="ai-icon" size={24} />
                             <h2>Generate Questions with AI</h2>
                         </div>
-                        <button onClick={onClose} className="close-btn"><X size={20} /></button>
+                        <button onClick={onClose} className="close-btn" aria-label="Close AI generator modal">
+                            <X size={18} />
+                        </button>
                     </div>
 
                     <div className="modal-body">
@@ -331,12 +344,59 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                 </motion.div>
 
                 <style>{`
-                    .ai-modal { max-width: 850px; padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: 90vh; }
+                    .ai-modal-overlay {
+                        position: fixed;
+                        inset: 0;
+                        width: 100vw;
+                        height: 100dvh;
+                        padding: clamp(0.75rem, 2vw, 1.5rem);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background: rgba(0, 0, 0, 0.8);
+                        backdrop-filter: blur(4px);
+                        z-index: 9999;
+                        overflow: hidden;
+                    }
+
+                    .ai-modal {
+                        width: min(850px, 100%);
+                        padding: 0;
+                        overflow: hidden;
+                        display: flex;
+                        flex-direction: column;
+                        max-height: calc(100dvh - 3rem);
+                    }
                     .modal-header { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--surface-low); }
                     .header-title { display: flex; align-items: center; gap: 0.75rem; }
                     .header-title h2 { margin: 0; font-size: 1.25rem; }
                     .ai-icon { color: var(--accent); }
-                    .modal-body { padding: 2rem; overflow-y: auto; flex: 1; }
+                    .close-btn {
+                        width: 2.2rem;
+                        height: 2.2rem;
+                        border-radius: 999px;
+                        border: 1px solid var(--border);
+                        background: var(--surface-high);
+                        color: var(--text-secondary);
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        cursor: pointer;
+                        transition: all 0.2s ease;
+                        flex-shrink: 0;
+                    }
+                    .close-btn:hover {
+                        color: var(--text-primary);
+                        border-color: var(--accent);
+                        background: rgba(99, 102, 241, 0.12);
+                        transform: translateY(-1px);
+                    }
+                    .close-btn:focus-visible {
+                        outline: none;
+                        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35);
+                    }
+                    .close-btn:active { transform: translateY(0); }
+                    .modal-body { padding: 2rem; overflow-y: auto; overscroll-behavior: contain; flex: 1; }
                     
                     .generator-setup { display: flex; flex-direction: column; gap: 1.5rem; }
                     .form-group label { margin-bottom: 0.5rem; display: block; font-weight: 500; font-size: 0.875rem; color: var(--text-secondary); }
@@ -381,6 +441,14 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                     .modal-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
                     .add-all-btn { background: #10b981; color: #fff; border: none; }
                     .add-all-btn:hover { background: #059669; }
+
+                    @media (max-width: 768px) {
+                        .ai-modal { max-height: calc(100dvh - 1.5rem); }
+                        .modal-header { padding: 1rem 1.25rem; }
+                        .modal-body { padding: 1.25rem; }
+                        .header-title h2 { font-size: 1.05rem; }
+                        .form-row, .q-options { grid-template-columns: 1fr; }
+                    }
                 `}</style>
             </div>
         </AnimatePresence>

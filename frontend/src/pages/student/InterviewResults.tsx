@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Loader2, ArrowLeft, CheckCircle, XCircle, BrainCircuit, ArrowRight, ClipboardCheck, Download, Code2 } from 'lucide-react';
@@ -158,6 +158,23 @@ const InterviewResults = () => {
                 </div>
             </header>
 
+            <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '10px', marginBottom: '20px' }}>
+                {codingRound && (
+                    <button 
+                        className="neo-btn-secondary" 
+                        onClick={() => navigate(`/student/coding/result/${codingRound.id}`)}
+                    >
+                        <Code2 size={16} /> View Coding Results
+                    </button>
+                )}
+                <button className="neo-btn-primary" onClick={handleDownload}>
+                    <Download size={16} /> Download Report
+                </button>
+                <button className="neo-btn-secondary" onClick={() => navigate('/student/dashboard')}>
+                    Finish Review
+                </button>
+            </div>
+
             <div className="results-content-wrapper">
                 {!showDetailed ? (
                     /* Step 1: AI Feedback Only */
@@ -230,9 +247,6 @@ const InterviewResults = () => {
                             >
                                 <ClipboardCheck size={20} /> Review Detailed Answers <ArrowRight size={18} />
                             </button>
-                            <button className="neo-btn-secondary" onClick={handleDownload}>
-                                <Download size={16} /> Download Full Report
-                            </button>
                         </div>
                     </motion.div>
                 ) : (
@@ -290,14 +304,7 @@ const InterviewResults = () => {
                             })}
                         </div>
                         
-                        <div className="view-actions footer-actions">
-                           <button className="neo-btn-secondary" onClick={() => navigate('/student/dashboard')}>
-                               Finish Review
-                           </button>
-                           <button className="neo-btn-primary" onClick={handleDownload}>
-                               <Download size={16} /> Download Report
-                           </button>
-                        </div>
+
                     </motion.div>
                 )}
             </div>

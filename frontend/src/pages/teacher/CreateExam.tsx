@@ -5,6 +5,7 @@ import {
     HelpCircle,
     Settings,
     CheckCircle,
+    AlertTriangle,
     Plus,
     Trash2,
     Upload,
@@ -26,6 +27,7 @@ const CreateExam = () => {
     const [isPublishing, setIsPublishing] = useState(false);
     const [publishSuccess, setPublishSuccess] = useState(false);
     const [showAIModal, setShowAIModal] = useState(false);
+    const [popupAlert, setPopupAlert] = useState<{ title: string; message: string; type: 'warning' | 'error' } | null>(null);
     const [examData, setExamData] = useState({
         title: '',
         subject: '',
@@ -40,7 +42,11 @@ const CreateExam = () => {
     const nextStep = () => {
         if (step === 1) {
             if (!examData.title || !examData.subject || !examData.duration || !examData.expires_at) {
-                alert('Please fill out all mandatory fields: Title, Subject, Duration, and Expiration Date.');
+                setPopupAlert({
+                    title: 'Missing Required Details',
+                    message: 'Please fill out all mandatory fields: Title, Subject, Duration, and Expiration Date.',
+                    type: 'warning'
+                });
                 return;
             }
         }
@@ -97,7 +103,7 @@ const CreateExam = () => {
                     options: q.options,
                     correct_answer: q.correct,
                     marks: 5,
-                    difficulty: 'medium'
+                    difficulty: 'Medium'
                 })),
                 status: status
             };
@@ -111,7 +117,11 @@ const CreateExam = () => {
             }, 2000);
         } catch (err) {
             console.error('Failed to publish exam:', err);
-            alert('Failed to publish exam. Please try again.');
+            setPopupAlert({
+                title: 'Publish Failed',
+                message: 'Failed to publish exam. Please try again.',
+                type: 'error'
+            });
         } finally {
             setIsPublishing(false);
         }
@@ -277,6 +287,39 @@ const CreateExam = () => {
                                 </div>
 
                                 <div className="questions-list">
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                        <button className="add-q-btn" onClick={addQuestion}>
+                                            <Plus size={20} /> Add New Inquiry
+                                        </button>
+                                        <button
+                                            className="add-q-btn"
+                                            style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                                            onClick={() => setShowAIModal(true)}
+                                        >
+                                            <Sparkles size={20} /> Generate with AI
+                                        </button>
+                                    </div>
+
+                                    <div className="bulk-import-container">
+                                        <div className="bulk-import-lite">
+                                            <Upload size={18} />
+                                            <span>Import questions from CSV/Excel</span>
+                                            <input
+                                                type="file"
+                                                accept=".csv, .xlsx, .xls"
+                                                onChange={handleFileUpload}
+                                                style={{ opacity: 0, position: 'absolute', width: '100%', cursor: 'pointer' }}
+                                            />
+                                        </div>
+                                        <a
+                                            href="/question_template.csv"
+                                            download
+                                            className="template-link"
+                                        >
+                                            <Download size={14} /> Download Template
+                                        </a>
+                                    </div>
+
                                     {examData.questions.map((q, i) => (
                                         <div key={i} className="question-editor neo-card">
                                             <div className="q-edit-header">
@@ -314,39 +357,6 @@ const CreateExam = () => {
                                             </div>
                                         </div>
                                     ))}
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                        <button className="add-q-btn" onClick={addQuestion}>
-                                            <Plus size={20} /> Add New Inquiry
-                                        </button>
-                                        <button
-                                            className="add-q-btn"
-                                            style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
-                                            onClick={() => setShowAIModal(true)}
-                                        >
-                                            <Sparkles size={20} /> Generate with AI
-                                        </button>
-                                    </div>
-
-                                    <div className="bulk-import-container">
-                                        <div className="bulk-import-lite">
-                                            <Upload size={18} />
-                                            <span>Import questions from CSV/Excel</span>
-                                            <input
-                                                type="file"
-                                                accept=".csv, .xlsx, .xls"
-                                                onChange={handleFileUpload}
-                                                style={{ opacity: 0, position: 'absolute', width: '100%', cursor: 'pointer' }}
-                                            />
-                                        </div>
-                                        <a
-                                            href="/question_template.csv"
-                                            download
-                                            className="template-link"
-                                        >
-                                            <Download size={14} /> Download Template
-                                        </a>
-                                    </div>
                                 </div>
                             </motion.div>
                         )}
@@ -416,6 +426,38 @@ const CreateExam = () => {
                     onClose={() => setShowAIModal(false)}
                     onAddQuestions={handleAddAIQuestions}
                 />
+
+                <AnimatePresence>
+                    {popupAlert && (
+                        <motion.div
+                            className="exam-alert-overlay"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setPopupAlert(null)}
+                        >
+                            <motion.div
+                                className="exam-alert-card"
+                                initial={{ opacity: 0, y: 14, scale: 0.97 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 14, scale: 0.97 }}
+                                transition={{ duration: 0.2 }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className={`exam-alert-icon ${popupAlert.type}`}>
+                                    <AlertTriangle size={20} />
+                                </div>
+                                <h3>{popupAlert.title}</h3>
+                                <p>{popupAlert.message}</p>
+                                <div className="exam-alert-actions">
+                                    <button className="neo-btn-primary" onClick={() => setPopupAlert(null)}>
+                                        OK
+                                    </button>
+                                </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 <style>{`
           .create-exam-page { display: flex; flex-direction: column; gap: 2.5rem; max-width: 1000px; margin: 0 auto; }
@@ -585,6 +627,72 @@ const CreateExam = () => {
           .publishing-icon {
             animation: rocket-launch 1s infinite;
           }
+
+                    .exam-alert-overlay {
+                        position: fixed;
+                        inset: 0;
+                        background: rgba(0, 0, 0, 0.65);
+                        backdrop-filter: blur(3px);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 10001;
+                        padding: 1rem;
+                    }
+
+                    .exam-alert-card {
+                        width: min(460px, 100%);
+                        background: linear-gradient(180deg, var(--surface) 0%, var(--surface-low) 100%);
+                        border: 1px solid var(--border);
+                        border-radius: var(--radius-md);
+                        box-shadow: 0 22px 40px rgba(0, 0, 0, 0.5);
+                        padding: 1.25rem 1.25rem 1rem;
+                    }
+
+                    .exam-alert-icon {
+                        width: 2.25rem;
+                        height: 2.25rem;
+                        border-radius: 999px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-bottom: 0.85rem;
+                    }
+
+                    .exam-alert-icon.warning {
+                        background: rgba(245, 158, 11, 0.18);
+                        border: 1px solid rgba(245, 158, 11, 0.45);
+                        color: #f59e0b;
+                    }
+
+                    .exam-alert-icon.error {
+                        background: rgba(239, 68, 68, 0.18);
+                        border: 1px solid rgba(239, 68, 68, 0.45);
+                        color: #ef4444;
+                    }
+
+                    .exam-alert-card h3 {
+                        margin: 0 0 0.45rem;
+                        font-size: 1.1rem;
+                    }
+
+                    .exam-alert-card p {
+                        margin: 0;
+                        color: var(--text-secondary);
+                        line-height: 1.55;
+                        font-size: 0.95rem;
+                    }
+
+                    .exam-alert-actions {
+                        display: flex;
+                        justify-content: flex-end;
+                        margin-top: 1rem;
+                    }
+
+                    .exam-alert-actions .neo-btn-primary {
+                        min-width: 84px;
+                        justify-content: center;
+                    }
           
           @keyframes rocket-launch {
             0%, 100% { transform: translateY(0); }
