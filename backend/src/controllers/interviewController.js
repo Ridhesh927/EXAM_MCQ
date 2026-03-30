@@ -1,14 +1,10 @@
 const { pool } = require('../config/db');
-const Groq = require('groq-sdk');
 const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 const notificationController = require('./notificationController');
 const logger = require('../utils/logger');
+const { generateJson, generateText } = require('../utils/aiClient');
 require('dotenv').config();
-
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY,
-});
 
 // Reference Datasets for AI Context
 // In a production system, these might be stored in the DB, but for now
@@ -100,14 +96,15 @@ exports.uploadResume = async (req, res) => {
         let parsedSkills = [];
         let parsedRoles = [];
         try {
-             const chatCompletion = await groq.chat.completions.create({
-                messages: [{ role: 'user', content: summarizePrompt }],
-                model: 'llama-3.1-8b-instant',
+            const { data: AIResponse } = await generateJson({
+                prompt: summarizePrompt,
+                role: 'user',
+                preferredProvider: 'auto',
                 temperature: 0.1,
-                max_tokens: 1024,
-                response_format: { type: 'json_object' }
+                maxTokens: 1024,
+                groqModel: 'llama-3.1-8b-instant',
+                geminiModel: 'gemini-1.5-flash',
             });
-            const AIResponse = JSON.parse(chatCompletion.choices[0]?.message?.content || '{}');
             
             // Handle different possible JSON shapes the AI might return
             if (AIResponse.skills && Array.isArray(AIResponse.skills)) {
@@ -246,14 +243,14 @@ exports.generateInterview = async (req, res) => {
             }
             `;
 
-            const completion = await groq.chat.completions.create({
-                messages: [{ role: 'user', content: prompt }],
-                model: 'llama-3.3-70b-versatile',
+            const { data: content } = await generateJson({
+                prompt,
+                role: 'user',
+                preferredProvider: 'auto',
                 temperature: 0.6,
-                response_format: { type: 'json_object' }
+                groqModel: 'llama-3.3-70b-versatile',
+                geminiModel: 'gemini-1.5-flash',
             });
-
-            const content = JSON.parse(completion.choices[0]?.message?.content || '{"questions":[]}');
             return (content.questions || []).filter(q => {
                 if (!q.question || !q.correct_answer || !Array.isArray(q.options) || q.options.length < 2) return false;
                 if (!q.options.some(opt => opt === q.correct_answer)) {
@@ -350,13 +347,14 @@ Return ONLY a JSON object:
     { "title": "...", "difficulty": "${levelB}", "description": "...", "examples": [{"input": "...", "output": "...", "explanation": "..."}], "constraints": "...", "hint": "..." }
   ]
 }`;
-            const codingCompletion = await groq.chat.completions.create({
-                messages: [{ role: 'user', content: codingPrompt }],
-                model: 'llama-3.3-70b-versatile',
+            const { data: codingParsed } = await generateJson({
+                prompt: codingPrompt,
+                role: 'user',
+                preferredProvider: 'auto',
                 temperature: 0.7,
-                response_format: { type: 'json_object' },
+                groqModel: 'llama-3.3-70b-versatile',
+                geminiModel: 'gemini-1.5-flash',
             });
-            const codingParsed = JSON.parse(codingCompletion.choices[0]?.message?.content || '{}');
             if (codingParsed.questions && codingParsed.questions.length >= 2) {
                 const [codingResult] = await pool.query(
                     'INSERT INTO coding_interviews (student_id, include_hard, questions) VALUES (?, ?, ?)',
@@ -546,12 +544,15 @@ exports.submitInterview = async (req, res) => {
 
         let feedbackText = "Feedback generation failed.";
         try {
-            const chatCompletion = await groq.chat.completions.create({
-                messages: [{ role: 'system', content: prompt }],
-                model: 'llama-3.1-8b-instant',
+            const { content } = await generateText({
+                prompt,
+                role: 'system',
+                preferredProvider: 'auto',
                 temperature: 0.7,
+                groqModel: 'llama-3.1-8b-instant',
+                geminiModel: 'gemini-1.5-flash',
             });
-            feedbackText = chatCompletion.choices[0]?.message?.content || "No feedback generated.";
+            feedbackText = content || "No feedback generated.";
         } catch (aiErr) {
             logger('WARN', 'AI feedback generation failed', { error: aiErr.message });
         }

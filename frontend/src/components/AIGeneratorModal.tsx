@@ -23,15 +23,23 @@ const REFERENCE_CATEGORIES = [
     { value: 'Quantitative Aptitude', label: '📊 Quantitative Aptitude' },
 ];
 
+const AI_PROVIDERS = [
+    { value: 'auto', label: 'Auto (fallback between Groq/Gemini)' },
+    { value: 'groq', label: 'Groq only' },
+    { value: 'gemini', label: 'Gemini only' },
+];
+
 const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, onAddQuestions }) => {
     const [context, setContext] = useState('');
     const [count, setCount] = useState(5);
     const [difficulty, setDifficulty] = useState('Medium');
     const [category, setCategory] = useState('');
+    const [provider, setProvider] = useState('auto');
     const [isGenerating, setIsGenerating] = useState(false);
     const [generatedQuestions, setGeneratedQuestions] = useState<any[]>([]);
     const [referenceUsed, setReferenceUsed] = useState<boolean | null>(null);
     const [matchedSection, setMatchedSection] = useState<string | null>(null);
+    const [providerUsed, setProviderUsed] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -62,6 +70,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
             formData.append('count', count.toString());
             formData.append('difficulty', difficulty);
             formData.append('category', category);
+            formData.append('provider', provider);
             if (selectedFile) {
                 formData.append('file', selectedFile);
             }
@@ -87,6 +96,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                 setGeneratedQuestions(formatted);
                 setReferenceUsed(data.meta?.referenceUsed ?? false);
                 setMatchedSection(data.meta?.matchedSection ?? null);
+                setProviderUsed(data.meta?.providerUsed ?? null);
             } else {
                 setError(data.message || 'Failed to generate questions. Please try again.');
             }
@@ -112,6 +122,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                 setGeneratedQuestions([]);
                 setReferenceUsed(null);
                 setMatchedSection(null);
+                setProviderUsed(null);
             }, 300);
         }
     };
@@ -257,13 +268,27 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                                     </div>
                                 </div>
 
+                                <div className="form-group">
+                                    <label>AI Provider</label>
+                                    <select
+                                        className="neo-input"
+                                        value={provider}
+                                        onChange={(e) => setProvider(e.target.value)}
+                                        disabled={isGenerating}
+                                    >
+                                        {AI_PROVIDERS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 <button
                                     className="neo-btn-primary full-width generate-btn"
                                     onClick={handleGenerate}
                                     disabled={isGenerating || (!context.trim() && !selectedFile && !category.trim())}
                                 >
                                     {isGenerating ? (
-                                        <><Loader2 className="animate-spin" size={20} /> Generating with Groq AI...</>
+                                        <><Loader2 className="animate-spin" size={20} /> Generating questions...</>
                                     ) : (
                                         <><Sparkles size={20} /> Generate Questions</>
                                     )}
@@ -292,10 +317,24 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                                                     : '🤖 AI generated freely (no CSV match)'}
                                             </span>
                                         )}
+                                        {providerUsed && (
+                                            <span style={{
+                                                fontSize: '0.75rem',
+                                                padding: '0.2rem 0.6rem',
+                                                borderRadius: '20px',
+                                                display: 'inline-block',
+                                                width: 'fit-content',
+                                                background: 'rgba(14, 165, 233, 0.12)',
+                                                color: '#0284c7',
+                                                border: '1px solid rgba(14, 165, 233, 0.25)'
+                                            }}>
+                                                🔧 Provider used: {providerUsed}
+                                            </span>
+                                        )}
                                     </div>
                                     <button
                                         className="retry-btn"
-                                        onClick={() => { setGeneratedQuestions([]); setReferenceUsed(null); setMatchedSection(null); }}
+                                        onClick={() => { setGeneratedQuestions([]); setReferenceUsed(null); setMatchedSection(null); setProviderUsed(null); }}
                                     >
                                         Start Over
                                     </button>

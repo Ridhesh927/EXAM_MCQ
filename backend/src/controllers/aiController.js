@@ -1,17 +1,13 @@
-const Groq = require('groq-sdk');
 const pdf = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 const logger = require('../utils/logger.js');
 const { matchSection, getSamplesBySection } = require('../utils/csvSearch.js');
+const { generateJson } = require('../utils/aiClient.js');
 require('dotenv').config();
-
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY,
-});
 
 exports.generateQuestions = async (req, res) => {
     try {
-        let { context, count = 5, difficulty = 'Medium', category = '' } = req.body;
+        let { context, count = 5, difficulty = 'Medium', category = '', provider = 'auto' } = req.body;
         let fileContent = '';
 
         // Handle File Upload Extraction
@@ -104,20 +100,14 @@ OUTPUT FORMAT MUST BE A STRICT JSON OBJECT containing an array named "questions"
   ]
 }`;
 
-        const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: 'system', content: prompt }],
-            model: 'llama-3.1-8b-instant',
+        const { data: parsedData, providerUsed } = await generateJson({
+            prompt,
+            role: 'system',
+            preferredProvider: provider,
             temperature: 0.7,
-            response_format: { type: 'json_object' }
+            groqModel: 'llama-3.1-8b-instant',
+            geminiModel: 'gemini-1.5-flash',
         });
-
-        const jsonResponse = chatCompletion.choices[0]?.message?.content;
-
-        if (!jsonResponse) {
-            throw new Error('No response from AI');
-        }
-
-        const parsedData = JSON.parse(jsonResponse);
 
         if (!parsedData || !parsedData.questions || !Array.isArray(parsedData.questions)) {
             throw new Error('Invalid JSON structure returned from AI');
@@ -126,13 +116,14 @@ OUTPUT FORMAT MUST BE A STRICT JSON OBJECT containing an array named "questions"
         res.status(200).json({
             questions: parsedData.questions,
             meta: {
+                providerUsed,
                 matchedSection,       // null if no CSV match (fallback used)
                 referenceUsed: !!referenceBlock,
             }
         });
 
     } catch (error) {
-        logger('ERROR', 'Error in Groq AI generation:', { message: error.message, error: error });
+        logger('ERROR', 'Error in AI question generation:', { message: error.message, error: error });
         res.status(500).json({ message: 'Failed to generate questions using AI.', error: error.message });
     }
 };

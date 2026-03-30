@@ -1,30 +1,33 @@
 const { pool } = require('../config/db');
-const Groq = require('groq-sdk');
 const notificationController = require('./notificationController');
 const logger = require('../utils/logger');
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const { generateJson, generateText } = require('../utils/aiClient');
 
 // ─────────────────────────────────────────────
 // Helper: Call AI and parse JSON safely
 // ─────────────────────────────────────────────
 const callAI = async (prompt) => {
-    const completion = await groq.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'llama-3.3-70b-versatile',
+    const { data } = await generateJson({
+        prompt,
+        role: 'user',
+        preferredProvider: 'auto',
         temperature: 0.7,
-        response_format: { type: 'json_object' },
+        groqModel: 'llama-3.3-70b-versatile',
+        geminiModel: 'gemini-1.5-flash',
     });
-    return JSON.parse(completion.choices[0]?.message?.content || '{}');
+    return data;
 };
 
 const callAIText = async (prompt) => {
-    const completion = await groq.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'llama-3.3-70b-versatile',
+    const { content } = await generateText({
+        prompt,
+        role: 'user',
+        preferredProvider: 'auto',
         temperature: 0.2,
+        groqModel: 'llama-3.3-70b-versatile',
+        geminiModel: 'gemini-1.5-flash',
     });
-    return completion.choices[0]?.message?.content || '';
+    return content || '';
 };
 
 // ─────────────────────────────────────────────
