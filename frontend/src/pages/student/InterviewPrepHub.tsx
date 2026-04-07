@@ -44,9 +44,28 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
     // Coding Round State
     const [includeHard, setIncludeHard] = useState(false);
     const [isStartingCoding, setIsStartingCoding] = useState(false);
+    const [companyLibrary, setCompanyLibrary] = useState<string[]>(['General']);
+    const [selectedCompany, setSelectedCompany] = useState('General');
+    const [codingRoundType, setCodingRoundType] = useState<'coding' | 'aptitude' | 'mixed'>('coding');
 
     useEffect(() => {
         fetchDashboardData();
+    }, []);
+
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await apiFetch('/api/coding/companies');
+                const data = await response.json();
+                if (response.ok && Array.isArray(data.companies) && data.companies.length) {
+                    setCompanyLibrary(data.companies);
+                }
+            } catch (error) {
+                console.error('Failed to load company library', error);
+            }
+        };
+
+        fetchCompanies();
     }, []);
 
     // Re-fetch when switching to History or Analytics tab so new sessions always appear
@@ -359,7 +378,46 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                         <Code2 size={20} className="text-accent" />
                                         <h3>DSA Coding Round</h3>
                                     </div>
-                                    <p className="coding-card-desc">Practice real algorithmic problems like you'd face in FAANG/product company technical interviews. AI will review your code after submission.</p>
+                                    <p className="coding-card-desc">Practice company-focused questions (coding or aptitude-style) inspired by real online assessments.</p>
+                                    <div className="form-group mt-3">
+                                        <label>Target Company Pattern</label>
+                                        <select
+                                            className="neo-input"
+                                            value={selectedCompany}
+                                            onChange={(e) => setSelectedCompany(e.target.value)}
+                                            disabled={isStartingCoding}
+                                        >
+                                            {companyLibrary.map((company) => (
+                                                <option key={company} value={company}>{company}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Round Focus</label>
+                                        <div className="difficulty-selector">
+                                            <button
+                                                className={`diff-btn ${codingRoundType === 'coding' ? 'active' : ''}`}
+                                                onClick={() => setCodingRoundType('coding')}
+                                                disabled={isStartingCoding}
+                                            >
+                                                Coding
+                                            </button>
+                                            <button
+                                                className={`diff-btn ${codingRoundType === 'aptitude' ? 'active' : ''}`}
+                                                onClick={() => setCodingRoundType('aptitude')}
+                                                disabled={isStartingCoding}
+                                            >
+                                                Aptitude Style
+                                            </button>
+                                            <button
+                                                className={`diff-btn ${codingRoundType === 'mixed' ? 'active' : ''}`}
+                                                onClick={() => setCodingRoundType('mixed')}
+                                                disabled={isStartingCoding}
+                                            >
+                                                Mixed
+                                            </button>
+                                        </div>
+                                    </div>
                                     <div className="include-hard-toggle">
                                         <input
                                             type="checkbox"
@@ -380,7 +438,11 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                             try {
                                                 const res = await apiFetch('/api/coding/generate', {
                                                     method: 'POST',
-                                                    body: JSON.stringify({ includeHard }),
+                                                    body: JSON.stringify({
+                                                        includeHard,
+                                                        company: selectedCompany,
+                                                        roundType: codingRoundType,
+                                                    }),
                                                 });
                                                 const data = await res.json();
                                                 if (!res.ok) throw new Error(data.message);

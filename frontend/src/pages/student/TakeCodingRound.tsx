@@ -12,6 +12,10 @@ interface CodingQuestion {
     examples: { input: string; output: string; explanation?: string }[];
     constraints: string;
     hint?: string;
+    source_company?: string;
+    round_type?: 'coding' | 'aptitude' | 'mixed';
+    provenance_mode?: string;
+    history_note?: string;
 }
 
 interface CodingRound {
@@ -165,6 +169,21 @@ const TakeCodingRound = () => {
                 <div className="coding-header-left">
                     <Code2 size={22} className="text-accent" />
                     <span className="coding-title">DSA Coding Round</span>
+                    {round.questions?.[0]?.source_company && (
+                        <span className="diff-tag" style={{ marginLeft: '0.75rem' }}>
+                            {round.questions[0].source_company} Pattern
+                        </span>
+                    )}
+                    {round.questions?.[0]?.round_type && (
+                        <span className="diff-tag" style={{ marginLeft: '0.5rem' }}>
+                            {round.questions[0].round_type.toUpperCase()}
+                        </span>
+                    )}
+                    {round.questions?.[0]?.provenance_mode === 'pattern-simulated' && (
+                        <span className="diff-tag" style={{ marginLeft: '0.5rem', opacity: 0.9 }}>
+                            Pattern Simulated
+                        </span>
+                    )}
                     <div className="q-tabs">
                         {round.questions.map((q2, i) => (
                             <button
@@ -228,6 +247,11 @@ const TakeCodingRound = () => {
                     </div>
 
                     <p className="problem-description">{q.description}</p>
+                    {q.history_note && (
+                        <p className="problem-description" style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '-0.25rem' }}>
+                            {q.history_note}
+                        </p>
+                    )}
 
                     {q.examples.map((ex, i) => (
                         <div key={i} className="example-block">

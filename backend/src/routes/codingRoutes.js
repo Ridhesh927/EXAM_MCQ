@@ -13,6 +13,9 @@ router.post('/generate', codingController.generateCodingRound);
 // 2. Get coding history
 router.get('/history', codingController.getCodingHistory);
 
+// 2b. Company library for company-focused rounds
+router.get('/companies', codingController.getCompanyLibrary);
+
 // 3. Get specific coding round (questions)
 router.get('/:id', codingController.getCodingRound);
 

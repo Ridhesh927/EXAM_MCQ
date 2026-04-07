@@ -2,6 +2,7 @@ const { pool } = require('../config/db');
 const notificationController = require('./notificationController');
 const logger = require('../utils/logger');
 const { generateJson, generateText } = require('../utils/aiClient');
+const { getCompanyProfile, getSupportedCompanies } = require('../utils/companyQuestionLibrary');
 
 // ─────────────────────────────────────────────
 // Helper: Call AI and parse JSON safely
@@ -161,16 +162,29 @@ Do NOT provide the correct code. Just verify execution correctness. Keep it to 1
 exports.generateCodingRound = async (req, res) => {
     try {
         const studentId = req.user.id;
-        const { includeHard = false } = req.body;
+        const { includeHard = false, company = 'General', roundType = 'coding' } = req.body;
+        const provenanceMode = 'pattern-simulated';
+
+        const allowedRoundTypes = new Set(['coding', 'aptitude', 'mixed']);
+        const safeRoundType = allowedRoundTypes.has(roundType) ? roundType : 'coding';
+        const companyProfile = getCompanyProfile(company);
 
         const levelA = includeHard ? 'Medium' : 'Easy';
         const levelB = includeHard ? 'Hard'   : 'Medium';
+
+        const topicGuidance = safeRoundType === 'coding'
+            ? `Prioritize coding patterns usually seen in ${companyProfile.name} assessments: ${companyProfile.codingPatterns.join(', ')}.`
+            : safeRoundType === 'aptitude'
+                ? `Prioritize aptitude-to-coding style problem statements inspired by ${companyProfile.name}: ${companyProfile.aptitudePatterns.join(', ')}.`
+                : `Mix one coding-heavy and one aptitude-style coding problem aligned with ${companyProfile.name}. Use these references: Coding(${companyProfile.codingPatterns.join(', ')}), Aptitude(${companyProfile.aptitudePatterns.join(', ')}).`;
 
         const prompt = `
 You are a senior software engineer setting a coding interview.
 Generate 2 classic DSA problems (like LeetCode style). One should be ${levelA} difficulty, the other ${levelB} difficulty.
 Focus on core DSA topics: Arrays, Strings, Hashmaps, Two Pointers, Sliding Window, Recursion, Dynamic Programming, Trees, or Graphs.
-Do NOT make the problem job-role specific. These are general algorithmic problems.
+${topicGuidance}
+Context note about this company pattern: ${companyProfile.notes}
+Make problems realistic for online assessment rounds and include practical edge cases.
 
 Return ONLY a JSON object with this exact structure:
 {
@@ -206,17 +220,47 @@ Return ONLY a JSON object with this exact structure:
             throw new Error('AI returned invalid question format. Try again.');
         }
 
+        const enrichedQuestions = parsed.questions.slice(0, 2).map((question, index) => ({
+            ...question,
+            source_company: companyProfile.name,
+            round_type: safeRoundType,
+            sequence: index + 1,
+            provenance_mode: provenanceMode,
+            source_evidence: null,
+            history_note: `This question follows ${companyProfile.name}-style patterns and is AI-generated, not a verified historical asked-question record.`
+        }));
+
         const [result] = await pool.query(
             'INSERT INTO coding_interviews (student_id, include_hard, questions) VALUES (?, ?, ?)',
-            [studentId, includeHard, JSON.stringify(parsed.questions)]
+            [studentId, includeHard, JSON.stringify(enrichedQuestions)]
         );
 
-        logger('INFO', `Coding round created for student ${studentId}`, { id: result.insertId });
-        res.status(201).json({ codingId: result.insertId });
+        logger('INFO', `Coding round created for student ${studentId}`, {
+            id: result.insertId,
+            company: companyProfile.name,
+            roundType: safeRoundType,
+            provenanceMode,
+        });
+        res.status(201).json({
+            codingId: result.insertId,
+            meta: {
+                provenanceMode,
+                company: companyProfile.name,
+                note: 'Company mode currently uses AI pattern simulation. To claim exact historical asked questions, add an evidence-backed dataset with source links, year, and round metadata.'
+            }
+        });
 
     } catch (error) {
         logger('ERROR', 'Error generating coding round', { error: error.message });
         res.status(500).json({ message: 'Failed to generate coding round.', error: error.message });
+    }
+};
+
+exports.getCompanyLibrary = async (req, res) => {
+    try {
+        res.status(200).json({ companies: getSupportedCompanies() });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to load company library.' });
     }
 };
 
