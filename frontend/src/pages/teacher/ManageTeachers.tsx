@@ -164,14 +164,21 @@ const ManageTeachers = () => {
     };
 
     const toggleSelectAll = () => {
-        if (selectedIds.size === filteredTeachers.length && filteredTeachers.length > 0) {
+        const selectableIds = filteredTeachers
+            .filter(t => !t.is_main_admin)
+            .map(t => t.id);
+
+        if (selectedIds.size === selectableIds.length && selectableIds.length > 0) {
             setSelectedIds(new Set());
         } else {
-            setSelectedIds(new Set(filteredTeachers.map(t => t.id)));
+            setSelectedIds(new Set(selectableIds));
         }
     };
 
     const toggleSelect = (id: string) => {
+        const target = teachers.find(t => t.id === id);
+        if (target?.is_main_admin) return;
+
         setSelectedIds(prev => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
@@ -206,6 +213,8 @@ const ManageTeachers = () => {
         teacher.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
         teacher.email.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    const selectableTeachers = filteredTeachers.filter(teacher => !teacher.is_main_admin);
 
     return (
         <DashboardLayout userType="teacher">
@@ -266,9 +275,10 @@ const ManageTeachers = () => {
                         <span className="col-checkbox">
                             <input 
                                 type="checkbox" 
-                                checked={filteredTeachers.length > 0 && selectedIds.size === filteredTeachers.length}
+                                checked={selectableTeachers.length > 0 && selectedIds.size === selectableTeachers.length}
                                 onChange={toggleSelectAll}
                                 className="neo-checkbox"
+                                disabled={selectableTeachers.length === 0}
                             />
                         </span>
                         <span className="col-name">Teacher</span>
@@ -308,6 +318,7 @@ const ManageTeachers = () => {
                                             checked={selectedIds.has(teacher.id)}
                                             onChange={() => toggleSelect(teacher.id)}
                                             className="neo-checkbox"
+                                            disabled={teacher.is_main_admin}
                                         />
                                     </div>
                                     <div className="col-name">
@@ -328,7 +339,7 @@ const ManageTeachers = () => {
                                         {new Date(teacher.created_at).toLocaleDateString('en-IN')}
                                     </span>
                                     <div className="col-actions">
-                                        {teacher.email !== 'admin@system.com' && (
+                                        {!teacher.is_main_admin && (
                                             <>
                                                 <button
                                                     onClick={() => handleToggleBlock(teacher.id, teacher.is_blocked)}

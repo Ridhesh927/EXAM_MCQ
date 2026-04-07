@@ -341,7 +341,7 @@ exports.adminCreateBulkTeachers = async (req, res) => {
 exports.getAllTeachers = async (req, res) => {
     try {
         const [teachers] = await pool.query(
-            'SELECT id, username, email, is_blocked, created_at FROM teachers ORDER BY created_at DESC'
+            'SELECT id, username, email, is_blocked, is_main_admin, created_at FROM teachers ORDER BY created_at DESC'
         );
         res.json({ teachers });
     } catch (error) {
@@ -368,6 +368,14 @@ exports.deleteUser = async (req, res) => {
 
         if (role !== 'teacher' && role !== 'student') {
             return res.status(400).json({ message: 'Invalid role' });
+        }
+
+        if (role === 'teacher') {
+            const [teacherRows] = await pool.query('SELECT is_main_admin FROM teachers WHERE id = ?', [id]);
+            if (!teacherRows.length) return res.status(404).json({ message: 'User not found' });
+            if (teacherRows[0].is_main_admin) {
+                return res.status(403).json({ message: 'Main admin account cannot be deleted.' });
+            }
         }
 
         const table = role === 'teacher' ? 'teachers' : 'students';
@@ -399,6 +407,16 @@ exports.bulkDeleteUsers = async (req, res) => {
             return res.status(400).json({ message: 'User IDs array is required' });
         }
 
+        if (role === 'teacher') {
+            const [mainAdmins] = await pool.query(
+                'SELECT id FROM teachers WHERE id IN (?) AND is_main_admin = TRUE',
+                [ids]
+            );
+            if (mainAdmins.length > 0) {
+                return res.status(403).json({ message: 'Main admin account cannot be deleted.' });
+            }
+        }
+
         const table = role === 'teacher' ? 'teachers' : 'students';
         const [result] = await pool.query(`DELETE FROM ${table} WHERE id IN (?)`, [ids]);
 
@@ -424,8 +442,17 @@ exports.toggleBlockUser = async (req, res) => {
         }
 
         const table = role === 'student' ? 'students' : 'teachers';
-        const [rows] = await pool.query(`SELECT is_blocked FROM ${table} WHERE id = ?`, [id]);
+        const [rows] = await pool.query(
+            role === 'teacher'
+                ? 'SELECT is_blocked, is_main_admin FROM teachers WHERE id = ?'
+                : 'SELECT is_blocked, FALSE as is_main_admin FROM students WHERE id = ?',
+            [id]
+        );
         if (rows.length === 0) return res.status(404).json({ message: 'User not found' });
+
+        if (role === 'teacher' && rows[0].is_main_admin) {
+            return res.status(403).json({ message: 'Main admin account cannot be blocked.' });
+        }
 
         const newStatus = !rows[0].is_blocked;
         await pool.query(`UPDATE ${table} SET is_blocked = ? WHERE id = ?`, [newStatus, id]);

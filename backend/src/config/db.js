@@ -19,9 +19,21 @@ const pool = mysql.createPool({
 });
 
 const ensureSecurityColumns = async (connection) => {
-    await connection.query(
-        'ALTER TABLE teachers ADD COLUMN IF NOT EXISTS is_main_admin BOOLEAN DEFAULT FALSE'
+    const [rows] = await connection.query(
+        `SELECT 1
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = ?
+           AND TABLE_NAME = 'teachers'
+           AND COLUMN_NAME = 'is_main_admin'
+         LIMIT 1`,
+        [process.env.DB_NAME || 'exam_portal_v2']
     );
+
+    if (!rows.length) {
+        await connection.query(
+            'ALTER TABLE teachers ADD COLUMN is_main_admin BOOLEAN DEFAULT FALSE'
+        );
+    }
 };
 
 const ensureMainAdminAccount = async (connection) => {
