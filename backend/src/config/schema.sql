@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS teachers (
     username VARCHAR(255) NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
+    is_main_admin BOOLEAN DEFAULT FALSE,
     is_blocked BOOLEAN DEFAULT FALSE,
     last_token TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

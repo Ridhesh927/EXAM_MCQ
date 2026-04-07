@@ -1,28 +1,34 @@
 const jwt = require('jsonwebtoken');
 const { pool } = require('../config/db');
 
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET must be configured in environment variables.');
+}
+
 const authMiddleware = async (req, res, next) => {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const authHeaderToken = req.header('Authorization')?.replace('Bearer ', '');
+    const cookieToken = req.cookies?.auth_token;
+    const token = authHeaderToken || cookieToken;
 
     if (!token) {
         return res.status(401).json({ message: 'No token, authorization denied' });
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded;
 
-        // Skip token check in DB for hardcoded main admin
-        if (decoded.id === 0 && decoded.isMainAdmin) {
-            return next();
-        }
-
         const table = decoded.role === 'teacher' ? 'teachers' : 'students';
-        const [rows] = await pool.query(`SELECT last_token FROM ${table} WHERE id = ?`, [decoded.id]);
+        const query = decoded.role === 'teacher'
+            ? 'SELECT last_token, is_main_admin FROM teachers WHERE id = ?'
+            : 'SELECT last_token, FALSE as is_main_admin FROM students WHERE id = ?';
+        const [rows] = await pool.query(query, [decoded.id]);
 
         if (rows.length === 0 || rows[0].last_token !== token) {
             return res.status(401).json({ message: 'Session expired or logged in on another device' });
         }
+
+        req.user.isMainAdmin = !!rows[0].is_main_admin;
 
         next();
     } catch (err) {

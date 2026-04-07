@@ -3,8 +3,30 @@ const jwt = require('jsonwebtoken');
 const { pool } = require('../config/db');
 const logger = require('../utils/logger');
 
+if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET must be configured in environment variables.');
+}
+
+const secureCookies = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+
+const getCookieOptions = () => ({
+    httpOnly: true,
+    secure: secureCookies,
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000,
+    path: '/'
+});
+
+const setAuthCookie = (res, token) => {
+    res.cookie('auth_token', token, getCookieOptions());
+};
+
+const sendInternalError = (res, message = 'Internal server error') => {
+    res.status(500).json({ message });
+};
+
 const generateToken = (id, role, isMainAdmin = false) => {
-    return jwt.sign({ id, role, isMainAdmin }, process.env.JWT_SECRET || 'your_super_secret_jwt_key_here', {
+    return jwt.sign({ id, role, isMainAdmin }, process.env.JWT_SECRET, {
         expiresIn: '24h'
     });
 };
@@ -25,7 +47,7 @@ exports.registerTeacher = async (req, res) => {
         res.status(201).json({ message: 'Teacher registered successfully', id: result.insertId });
     } catch (error) {
         logger('REGISTER_TEACHER_ERROR', `Failed to register teacher: ${req.body.email}`, { error: error.message });
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -33,13 +55,6 @@ exports.registerTeacher = async (req, res) => {
 exports.loginTeacher = async (req, res) => {
     try {
         const { email, password } = req.body;
-
-        // Hardcoded Main Admin Login
-        if (email === 'admin@system.com' && password === 'admin123') {
-            const token = generateToken(0, 'teacher', true); // id 0 for main admin
-            logger('LOGIN_TEACHER', `Main Admin logged in`, { email });
-            return res.json({ token, user: { id: 0, username: 'Main Admin', email: 'admin@system.com', role: 'teacher', isMainAdmin: true } });
-        }
 
         const [rows] = await pool.query('SELECT * FROM teachers WHERE email = ?', [email]);
 
@@ -62,17 +77,18 @@ exports.loginTeacher = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const token = generateToken(teacher.id, 'teacher', false);
+        const token = generateToken(teacher.id, 'teacher', !!teacher.is_main_admin);
 
         // Store last token
         await pool.query('UPDATE teachers SET last_token = ? WHERE id = ?', [token, teacher.id]);
+        setAuthCookie(res, token);
 
         logger('LOGIN_TEACHER', `Teacher logged in: ${teacher.username} (${email})`, { id: teacher.id });
 
-        res.json({ token, user: { id: teacher.id, username: teacher.username, email: teacher.email, role: 'teacher', isMainAdmin: false } });
+        res.json({ token, user: { id: teacher.id, username: teacher.username, email: teacher.email, role: 'teacher', isMainAdmin: !!teacher.is_main_admin } });
     } catch (error) {
         logger('LOGIN_TEACHER_ERROR', `Login error for: ${req.body.email}`, { error: error.message });
-        res.status(500).json({ error: error.message });
+        sendInternalError(res, 'Login failed. Please try again.');
     }
 };
 
@@ -92,7 +108,7 @@ exports.registerStudent = async (req, res) => {
         res.status(201).json({ message: 'Student registered successfully', id: result.insertId });
     } catch (error) {
         logger('REGISTER_STUDENT_ERROR', `Failed to register student: ${req.body.email}`, { error: error.message });
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -126,6 +142,7 @@ exports.loginStudent = async (req, res) => {
 
         // Store last token
         await pool.query('UPDATE students SET last_token = ? WHERE id = ?', [token, student.id]);
+        setAuthCookie(res, token);
 
         logger('LOGIN_STUDENT', `Student logged in: ${student.username} (${student.email})`, { id: student.id, prn: student.prn_number });
 
@@ -136,7 +153,7 @@ exports.loginStudent = async (req, res) => {
         });
     } catch (error) {
         logger('LOGIN_STUDENT_ERROR', `Login error for PRN: ${req.body.prn_number}`, { error: error.message });
-        res.status(500).json({ error: error.message });
+        sendInternalError(res, 'Login failed. Please try again.');
     }
 };
 exports.changePassword = async (req, res) => {
@@ -168,7 +185,7 @@ exports.changePassword = async (req, res) => {
         res.json({ message: 'Password updated successfully' });
     } catch (error) {
         logger('CHANGE_PASSWORD_ERROR', `Error changing password for user ID: ${req.user.id}`, { error: error.message });
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -200,7 +217,7 @@ exports.adminCreateTeacher = async (req, res) => {
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({ message: 'Email already exists' });
         }
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -230,7 +247,7 @@ exports.adminCreateStudent = async (req, res) => {
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(400).json({ message: 'Email or PRN already exists' });
         }
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -273,7 +290,7 @@ exports.adminCreateBulkStudents = async (req, res) => {
             results
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -316,7 +333,7 @@ exports.adminCreateBulkTeachers = async (req, res) => {
             results
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -328,7 +345,7 @@ exports.getAllTeachers = async (req, res) => {
         );
         res.json({ teachers });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -340,7 +357,7 @@ exports.getAllStudents = async (req, res) => {
         );
         res.json({ students });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -364,7 +381,7 @@ exports.deleteUser = async (req, res) => {
 
         res.json({ message: `${role.charAt(0).toUpperCase() + role.slice(1)} deleted successfully` });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -393,7 +410,7 @@ exports.bulkDeleteUsers = async (req, res) => {
         });
     } catch (error) {
         logger('ADMIN_BULK_DELETE_ERROR', `Failed bulk delete for ${req.params.role}`, { error: error.message });
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
 
@@ -417,6 +434,7 @@ exports.toggleBlockUser = async (req, res) => {
 
         res.json({ message: `${role.charAt(0).toUpperCase() + role.slice(1)} ${newStatus ? 'blocked' : 'unblocked'} successfully`, is_blocked: newStatus });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        sendInternalError(res);
     }
 };
+
