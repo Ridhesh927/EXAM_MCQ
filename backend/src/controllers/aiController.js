@@ -1,14 +1,53 @@
 const pdf = require('pdf-parse');
 const Tesseract = require('tesseract.js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const logger = require('../utils/logger.js');
 const { matchSection, getSamplesBySection } = require('../utils/csvSearch.js');
 const { generateJson } = require('../utils/aiClient.js');
 require('dotenv').config();
 
+const MIN_PDF_TEXT_LENGTH = 120;
+
+const extractScannedPdfTextWithGemini = async (pdfBuffer) => {
+    const geminiApiKey = process.env.GEMINI_API_KEY || process.env.KILO_API_KEY;
+    if (!geminiApiKey) {
+        throw new Error('GEMINI_API_KEY or KILO_API_KEY is not configured');
+    }
+
+    const geminiClient = new GoogleGenerativeAI(geminiApiKey);
+    const model = geminiClient.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    const result = await model.generateContent({
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    {
+                        text: 'Extract all readable text from this scanned PDF. Return only plain text with paragraph breaks, no markdown and no additional commentary.'
+                    },
+                    {
+                        inlineData: {
+                            mimeType: 'application/pdf',
+                            data: pdfBuffer.toString('base64')
+                        }
+                    }
+                ]
+            }
+        ],
+        generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 8192
+        }
+    });
+
+    return result?.response?.text()?.trim() || '';
+};
+
 exports.generateQuestions = async (req, res) => {
     try {
         let { context, count = 5, difficulty = 'Medium', category = '', provider = 'auto' } = req.body;
         let fileContent = '';
+        let extractionMethod = null;
 
         // Handle File Upload Extraction
         if (req.file) {
@@ -17,12 +56,31 @@ exports.generateQuestions = async (req, res) => {
 
             if (mimetype === 'application/pdf') {
                 const pdfData = await pdf(buffer);
-                fileContent = pdfData.text;
-                logger('INFO', 'Extracted text from PDF', { length: fileContent.length });
+                fileContent = (pdfData.text || '').trim();
+                extractionMethod = 'pdf-parse';
+
+                // Fallback for scanned PDFs where embedded text is missing/very small.
+                if (fileContent.length < MIN_PDF_TEXT_LENGTH) {
+                    try {
+                        const scannedText = await extractScannedPdfTextWithGemini(buffer);
+                        if (scannedText.length >= MIN_PDF_TEXT_LENGTH) {
+                            fileContent = scannedText;
+                            extractionMethod = 'gemini-scanned-pdf-ocr';
+                        }
+                    } catch (ocrError) {
+                        logger('WARN', 'Scanned PDF OCR fallback failed', { message: ocrError.message });
+                    }
+                }
+
+                logger('INFO', 'Extracted text from PDF', {
+                    length: fileContent.length,
+                    extractionMethod
+                });
             } else if (mimetype.startsWith('image/')) {
                 const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
                 fileContent = text;
-                logger('INFO', 'Extracted text from image (OCR)', { length: fileContent.length });
+                extractionMethod = 'tesseract-image-ocr';
+                logger('INFO', 'Extracted text from image (OCR)', { length: fileContent.length, extractionMethod });
             }
         }
 
@@ -119,6 +177,7 @@ OUTPUT FORMAT MUST BE A STRICT JSON OBJECT containing an array named "questions"
                 providerUsed,
                 matchedSection,       // null if no CSV match (fallback used)
                 referenceUsed: !!referenceBlock,
+                extractionMethod,
             }
         });
 

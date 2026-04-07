@@ -1,12 +1,14 @@
 const Groq = require('groq-sdk');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+const geminiApiKey = process.env.GEMINI_API_KEY || process.env.KILO_API_KEY;
+
 const groqClient = process.env.GROQ_API_KEY
     ? new Groq({ apiKey: process.env.GROQ_API_KEY })
     : null;
 
-const geminiClient = process.env.GEMINI_API_KEY
-    ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+const geminiClient = geminiApiKey
+    ? new GoogleGenerativeAI(geminiApiKey)
     : null;
 
 const normalizeProvider = (provider) => {
@@ -58,7 +60,7 @@ const callGroq = async ({ prompt, role, jsonMode, temperature, maxTokens, model 
 
 const callGemini = async ({ prompt, jsonMode, temperature, maxTokens, model }) => {
     if (!geminiClient) {
-        throw new Error('GEMINI_API_KEY is not configured');
+        throw new Error('GEMINI_API_KEY or KILO_API_KEY is not configured');
     }
 
     const generativeModel = geminiClient.getGenerativeModel({
