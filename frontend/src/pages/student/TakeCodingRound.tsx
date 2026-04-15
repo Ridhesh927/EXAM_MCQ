@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { Loader2, Send, AlertTriangle, CheckCircle, Code2, Play, X } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { apiFetch } from '../../utils/api';
 import './TakeCodingRound.css';
 
@@ -45,11 +46,48 @@ const DIFF_COLOR: Record<string, string> = {
     Hard: '#ef4444',
 };
 
+const formatElapsedTime = (totalSeconds: number) => {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const seconds = safeSeconds % 60;
+
+    if (hours > 0) {
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
+
+type TimerStatus = 'running' | 'paused';
+
+interface CodingTimerState {
+    startedAt: number | null;
+    accumulatedSeconds: number;
+    status: TimerStatus;
+}
+
+interface TestCaseStats {
+    total_test_cases: number;
+    completed_test_cases: number;
+    passed_test_cases: number;
+    failed_test_cases: number;
+    remaining_test_cases: number;
+}
+
 
 
 const TakeCodingRound = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const codingShellRef = useRef<HTMLDivElement>(null);
+    const warningCountRef = useRef(0);
+    const lastViolationTimeRef = useRef(0);
+    const hasStartedRef = useRef(false);
+    const isTerminatedRef = useRef(false);
+    const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+    const [warningCount, setWarningCount] = useState(0);
+    const [isTerminated, setIsTerminated] = useState(false);
 
     const [round, setRound] = useState<CodingRound | null>(null);
     const [loading, setLoading] = useState(true);
@@ -66,9 +104,92 @@ const TakeCodingRound = () => {
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showHint, setShowHint] = useState(false);
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [timerStatus, setTimerStatus] = useState<TimerStatus>('running');
+    const timerStateRef = useRef<CodingTimerState>({
+        startedAt: null,
+        accumulatedSeconds: 0,
+        status: 'running',
+    });
+    const timerRef = useRef<number | null>(null);
+    const timerStorageKey = id ? `coding-round-timer-${id}` : null;
+
+    const syncTimerDisplay = () => {
+        const state = timerStateRef.current;
+        const runningSeconds = state.startedAt ? Math.max(0, Math.floor((Date.now() - state.startedAt) / 1000)) : 0;
+        const totalSeconds = state.accumulatedSeconds + runningSeconds;
+        setElapsedSeconds(totalSeconds);
+        setTimerStatus(state.status);
+        return totalSeconds;
+    };
+
+    const persistTimerState = () => {
+        if (!timerStorageKey) return;
+        localStorage.setItem(timerStorageKey, JSON.stringify(timerStateRef.current));
+    };
+
+    const loadTimerState = () => {
+        if (!timerStorageKey) return;
+
+        const stored = localStorage.getItem(timerStorageKey);
+        if (stored) {
+            try {
+                const parsed = JSON.parse(stored) as Partial<CodingTimerState>;
+                timerStateRef.current = {
+                    startedAt: typeof parsed.startedAt === 'number' ? parsed.startedAt : Date.now(),
+                    accumulatedSeconds: Math.max(0, Number(parsed.accumulatedSeconds) || 0),
+                    status: parsed.status === 'paused' ? 'paused' : 'running',
+                };
+            } catch {
+                timerStateRef.current = { startedAt: Date.now(), accumulatedSeconds: 0, status: 'running' };
+            }
+        } else {
+            timerStateRef.current = { startedAt: Date.now(), accumulatedSeconds: 0, status: 'running' };
+            persistTimerState();
+        }
+
+        syncTimerDisplay();
+    };
+
+    const startTimer = () => {
+        const current = timerStateRef.current;
+        if (current.status === 'running') return;
+
+        current.startedAt = Date.now();
+        current.status = 'running';
+        timerStateRef.current = current;
+        persistTimerState();
+        syncTimerDisplay();
+    };
+
+    const pauseTimer = () => {
+        const current = timerStateRef.current;
+        if (current.status === 'paused') return;
+
+        if (current.startedAt) {
+            current.accumulatedSeconds += Math.max(0, Math.floor((Date.now() - current.startedAt) / 1000));
+        }
+        current.startedAt = null;
+        current.status = 'paused';
+        timerStateRef.current = current;
+        persistTimerState();
+        syncTimerDisplay();
+    };
+
+    const restartTimer = () => {
+        timerStateRef.current = {
+            startedAt: Date.now(),
+            accumulatedSeconds: 0,
+            status: 'running',
+        };
+        persistTimerState();
+        syncTimerDisplay();
+    };
+
+    const getElapsedTime = () => syncTimerDisplay();
 
     const [runState, setRunState] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
-    const [runOutput, setRunOutput] = useState<{ stdout: string; stderr: string; compile: string; ai_test_feedback?: string } | null>(null);
+    const [runOutput, setRunOutput] = useState<{ stdout: string; stderr: string; compile: string; ai_test_feedback?: string; test_case_stats?: TestCaseStats | null } | null>(null);
     const [showConsole, setShowConsole] = useState(false);
 
     useEffect(() => {
@@ -78,6 +199,8 @@ const TakeCodingRound = () => {
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.message);
                 setRound(data.round);
+
+                loadTimerState();
             } catch (e: any) {
                 alert(e.message);
                 navigate('/student/dashboard');
@@ -87,6 +210,117 @@ const TakeCodingRound = () => {
         };
         fetch();
     }, [id, navigate]);
+
+    useEffect(() => {
+        if (round) {
+            hasStartedRef.current = true;
+        }
+    }, [round]);
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            const currentFull = !!document.fullscreenElement;
+            setIsFullscreen(currentFull);
+
+            if (!currentFull && hasStartedRef.current && !isTerminatedRef.current) {
+                handleViolation('Fullscreen Exited');
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden' && hasStartedRef.current && !isTerminatedRef.current) {
+                handleViolation('Tab Switched/Minimized');
+            }
+        };
+
+        const handleBlur = () => {
+            if (hasStartedRef.current && !isTerminatedRef.current) {
+                handleViolation('Window Focus Lost');
+            }
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('blur', handleBlur);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (warningCount >= 3 && !isTerminated) {
+            terminateCodingRound('Proctoring violations (3/3 warnings)');
+        }
+    }, [warningCount, isTerminated]);
+
+    const enterFullscreen = async () => {
+        try {
+            const element = document.documentElement;
+            if (element.requestFullscreen) {
+                await element.requestFullscreen();
+            }
+        } catch (error) {
+            console.error('Failed to enter fullscreen', error);
+        }
+    };
+
+    const handleViolation = (type: string) => {
+        if (isTerminatedRef.current) return;
+        const now = Date.now();
+        if (now - lastViolationTimeRef.current < 2500) return;
+
+        lastViolationTimeRef.current = now;
+        const nextCount = warningCountRef.current + 1;
+        warningCountRef.current = nextCount;
+        setWarningCount(nextCount);
+    };
+
+    const terminateCodingRound = async (reason: string) => {
+        if (isTerminated) return;
+        isTerminatedRef.current = true;
+        setIsTerminated(true);
+
+        if (document.fullscreenElement) {
+            await document.exitFullscreen().catch(() => { });
+        }
+
+        try {
+            await handleSubmit();
+        } catch (error) {
+            console.error('Auto-submit failed after termination', error);
+            alert(reason);
+            navigate('/student/dashboard');
+        }
+    };
+
+    useEffect(() => {
+        if (!round || isSubmitting || timerStatus !== 'running') {
+            if (timerRef.current) {
+                window.clearInterval(timerRef.current);
+                timerRef.current = null;
+            }
+            return;
+        }
+
+        if (timerRef.current) {
+            window.clearInterval(timerRef.current);
+        }
+
+        timerRef.current = window.setInterval(() => {
+            syncTimerDisplay();
+            persistTimerState();
+        }, 1000);
+
+        return () => {
+            if (timerRef.current) {
+                window.clearInterval(timerRef.current);
+                timerRef.current = null;
+            }
+        };
+    }, [round, isSubmitting, timerStatus]);
 
     const handleLanguageChange = (lang: string) => {
         setLanguage(lang);
@@ -112,15 +346,20 @@ const TakeCodingRound = () => {
             const data = await res.json();
             
             if (res.ok) {
+                const aiStatus = data.ai_test_status || 'fail';
+                const testCaseStats = data.test_case_stats || null;
+                const aiPassed = aiStatus === 'pass' && (!testCaseStats || testCaseStats.failed_test_cases === 0);
+
                 setRunOutput({
                     stdout: data.stdout || '',
                     stderr: data.stderr || '',
                     compile: data.compile_output || '',
-                    ai_test_feedback: data.ai_test_feedback || ''
+                    ai_test_feedback: data.ai_test_feedback || '',
+                    test_case_stats: testCaseStats,
                 });
                 
-                // Set explicitly failed if AI says Failed
-                if (data.ai_test_feedback && data.ai_test_feedback.includes('❌ Failed')) {
+                // Green only when AI test passes and there are no failed test cases.
+                if (!aiPassed) {
                     setRunState('error');
                 } else {
                     setRunState(data.status?.id === 3 ? 'success' : 'error');
@@ -135,14 +374,23 @@ const TakeCodingRound = () => {
     };
 
     const handleSubmit = async () => {
+        if (isTerminated && isSubmitting) return;
         setIsSubmitting(true);
         try {
             const res = await apiFetch(`/api/coding/${id}/submit`, {
                 method: 'POST',
-                body: JSON.stringify({ q1Code: codesByLang[language].q1, q2Code: codesByLang[language].q2, language }),
+                body: JSON.stringify({
+                    q1Code: codesByLang[language].q1,
+                    q2Code: codesByLang[language].q2,
+                    language,
+                        completionTimeSeconds: getElapsedTime(),
+                }),
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message);
+            if (id) {
+                localStorage.removeItem(timerStorageKey || `coding-round-timer-${id}`);
+            }
             navigate(`/student/coding/result/${id}`);
         } catch (e: any) {
             alert(e.message || 'Submission failed.');
@@ -161,9 +409,132 @@ const TakeCodingRound = () => {
 
     const q = round.questions[activeQ];
     const codeKey = activeQ === 0 ? 'q1' : 'q2';
+    const expandedHint = q.hint && q.hint.length < 120
+        ? `${q.hint} Focus on the core pattern, keep the solution linear if possible, and test edge cases before you submit.`
+        : q.hint;
+
+    if (isTerminated) {
+        return (
+            <div className="fullscreen-guard termination-screen">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="guard-content neo-card"
+                >
+                    <AlertTriangle size={48} className="text-error" />
+                    <h1 className="text-error">Coding Round Terminated</h1>
+                    <p>Your session has been terminated due to multiple rule violations (3/3 warnings). Progress has been auto-submitted.</p>
+                    <button onClick={() => navigate('/student/dashboard')} className="neo-btn-primary">Return to Dashboard</button>
+                </motion.div>
+                <style>{`
+                    .fullscreen-guard {
+                        height: 100vh;
+                        width: 100vw;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        z-index: 9999;
+                    }
+                    .guard-content {
+                        max-width: 520px;
+                        text-align: center;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        gap: 1.5rem;
+                        padding: 4rem;
+                        border: 1px solid rgba(255,255,255,0.05);
+                        background: rgba(20, 20, 22, 0.9);
+                        border-radius: 12px;
+                    }
+                    .termination-screen { background: rgba(20, 10, 10, 1); }
+                    .text-error { color: #ef4444; }
+                `}</style>
+            </div>
+        );
+    }
+
+    if (!isFullscreen) {
+        return (
+            <div className="fullscreen-guard">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="guard-content neo-card"
+                >
+                    {warningCount > 0 ? (
+                        <>
+                            <AlertTriangle size={64} className="text-warning pulse-warning" />
+                            <h1 className="text-warning" style={{ color: '#f97316' }}>Rule Violation Detected</h1>
+                            <div className="warning-status">
+                                <span className="warning-pill">Warning {warningCount} of 3</span>
+                            </div>
+                            <p>You have exited the secure coding environment. Continuing to do so will result in automatic termination.</p>
+                        </>
+                    ) : (
+                        <>
+                            <AlertTriangle size={48} style={{ color: '#6366f1' }} />
+                            <h1 style={{ color: 'white' }}>Secure Session Required</h1>
+                            <p>This coding assessment requires an immersive environment. Please enable fullscreen to commence.</p>
+                        </>
+                    )}
+                    <button
+                        onClick={enterFullscreen}
+                        className="neo-btn-primary"
+                    >
+                        {warningCount > 0 ? "Resume Secure Session" : "Enter Fullscreen & Start"}
+                    </button>
+                </motion.div>
+                <style>{`
+                    .fullscreen-guard {
+                        height: 100vh;
+                        width: 100vw;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        z-index: 9999;
+                    }
+                    .guard-content {
+                        max-width: 520px;
+                        text-align: center;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        gap: 1.5rem;
+                        padding: 4rem;
+                        border: 1px solid rgba(255,255,255,0.05);
+                        background: rgba(20, 20, 22, 0.9);
+                        border-radius: 12px;
+                    }
+                    .warning-pill {
+                        background: rgba(249, 115, 22, 0.1);
+                        color: #f97316;
+                        padding: 0.5rem 1.5rem;
+                        border-radius: 20px;
+                        font-weight: 700;
+                        border: 1px solid rgba(249, 115, 22, 0.2);
+                    }
+                    .pulse-warning { animation: warning-pulse 1.5s infinite; }
+                    @keyframes warning-pulse {
+                        0% { transform: scale(1); }
+                        50% { transform: scale(1.05); }
+                        100% { transform: scale(1); }
+                    }
+                `}</style>
+            </div>
+        );
+    }
 
     return (
-        <div className="coding-container">
+        <div className={`coding-container ${isFullscreen ? 'fullscreen-active' : ''}`} ref={codingShellRef}>
             {/* Top bar */}
             <header className="coding-header">
                 <div className="coding-header-left">
@@ -200,6 +571,28 @@ const TakeCodingRound = () => {
                     </div>
                 </div>
                 <div className="coding-header-right">
+                    <div className="coding-timer" title="Time spent on this coding round">
+                        <span className="coding-timer-label">Time</span>
+                        <span className="coding-timer-value">{formatElapsedTime(elapsedSeconds)}</span>
+                        <span className={`coding-timer-status ${timerStatus}`}>{timerStatus === 'running' ? 'Running' : 'Paused'}</span>
+                    </div>
+                    <div className="coding-timer-actions">
+                        {timerStatus === 'running' ? (
+                            <button type="button" className="timer-action-btn" onClick={pauseTimer} disabled={isSubmitting}>
+                                Pause
+                            </button>
+                        ) : (
+                            <button type="button" className="timer-action-btn" onClick={startTimer} disabled={isSubmitting}>
+                                Start
+                            </button>
+                        )}
+                        <button type="button" className="timer-action-btn secondary" onClick={restartTimer} disabled={isSubmitting}>
+                            Restart
+                        </button>
+                    </div>
+                    <div className="coding-warning-badge" title="Three warnings will end the coding round automatically">
+                        Warnings: {warningCount}/3
+                    </div>
                     <select
                         className="lang-select"
                         value={language}
@@ -223,7 +616,7 @@ const TakeCodingRound = () => {
                         <button
                             className="submit-code-btn"
                             onClick={handleSubmit}
-                            disabled={isSubmitting || runState === 'running'}
+                            disabled={isSubmitting || runState === 'running' || isTerminated}
                         >
                             {isSubmitting ? (
                                 <><Loader2 size={16} className="animate-spin" /> AI Grading...</>
@@ -247,17 +640,11 @@ const TakeCodingRound = () => {
                     </div>
 
                     <p className="problem-description">{q.description}</p>
-                    {q.history_note && (
-                        <p className="problem-description" style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '-0.25rem' }}>
-                            {q.history_note}
-                        </p>
-                    )}
-
-                    {q.examples.map((ex, i) => (
+                    {q.examples.map((ex: any, i: number) => (
                         <div key={i} className="example-block">
                             <div className="example-label">Example {i + 1}</div>
-                            <div className="example-line"><strong>Input:</strong> <code>{ex.input}</code></div>
-                            <div className="example-line"><strong>Output:</strong> <code>{ex.output}</code></div>
+                            <div className="example-line"><strong>Input:</strong> <code>{typeof ex.input === 'object' ? JSON.stringify(ex.input) : ex.input}</code></div>
+                            <div className="example-line"><strong>Output:</strong> <code>{typeof ex.output === 'object' ? JSON.stringify(ex.output) : ex.output}</code></div>
                             {ex.explanation && <div className="example-line text-muted"><strong>Explanation:</strong> {ex.explanation}</div>}
                         </div>
                     ))}
@@ -272,7 +659,7 @@ const TakeCodingRound = () => {
                             <button className="hint-toggle" onClick={() => setShowHint(v => !v)}>
                                 <AlertTriangle size={14} /> {showHint ? 'Hide Hint' : 'Show Hint'}
                             </button>
-                            {showHint && <p className="hint-text">{q.hint}</p>}
+                            {showHint && <p className="hint-text">{expandedHint}</p>}
                         </div>
                     )}
                 </div>
@@ -337,6 +724,15 @@ const TakeCodingRound = () => {
                                                     AI Test Runner:
                                                 </strong>
                                                 <div style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{runOutput.ai_test_feedback}</div>
+                                                {runOutput.test_case_stats && (
+                                                    <div style={{ marginTop: '0.6rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                                        <strong style={{ color: 'var(--text-primary)' }}>Test Cases:</strong>{' '}
+                                                        Completed {runOutput.test_case_stats.completed_test_cases}/{runOutput.test_case_stats.total_test_cases}{' '}
+                                                        | Passed {runOutput.test_case_stats.passed_test_cases}{' '}
+                                                        | Failed {runOutput.test_case_stats.failed_test_cases}{' '}
+                                                        | Remaining {runOutput.test_case_stats.remaining_test_cases}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                         {runOutput.compile && (

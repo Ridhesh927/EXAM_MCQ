@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Loader2, ArrowRight, ArrowLeft, CheckCircle, Flag, Code2, Trophy } from 'lucide-react';
+import { Loader2, ArrowRight, ArrowLeft, CheckCircle, Flag, Code2, Trophy, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import Skeleton from '../../components/Skeleton';
 import ConfirmModal from '../../components/ConfirmModal';
@@ -20,13 +20,56 @@ interface Interview {
     ai_feedback: string | null;
 }
 
+interface MapSection {
+    label: string;
+    color: string;
+    start: number;
+    end: number;
+}
+
+const buildQuestionMapSections = (total: number): MapSection[] => {
+    const templates = [
+        { key: 'dsa', label: 'DSA', color: '#6366f1' },
+        { key: 'logical', label: 'Logical', color: '#06b6d4' },
+        { key: 'verbal', label: 'Verbal', color: '#8b5cf6' },
+        { key: 'technical', label: 'Technical', color: '#d97706' },
+    ];
+
+    const remainderPriority = ['technical', 'dsa', 'logical', 'verbal'];
+    const baseCount = Math.floor(total / templates.length);
+    const remainder = total % templates.length;
+    const remainderSet = new Set(remainderPriority.slice(0, remainder));
+
+    let cursor = 0;
+    return templates.map((template) => {
+        const count = baseCount + (remainderSet.has(template.key) ? 1 : 0);
+        const start = cursor;
+        const end = cursor + count;
+        cursor = end;
+        return {
+            label: template.label,
+            color: template.color,
+            start,
+            end,
+        };
+    });
+};
+
 const TakeInterview = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const interviewShellRef = useRef<HTMLDivElement>(null);
+    const warningCountRef = useRef(0);
+    const lastViolationTimeRef = useRef(0);
+    const hasStartedRef = useRef(false);
+    const isTerminatedRef = useRef(false);
     
     const [interview, setInterview] = useState<Interview | null>(null);
     const [questions, setQuestions] = useState<Question[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+    const [warningCount, setWarningCount] = useState(0);
+    const [isTerminated, setIsTerminated] = useState(false);
     
     const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
     const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -46,6 +89,100 @@ const TakeInterview = () => {
             document.body.classList.remove('interview-solid-bg');
         };
     }, []);
+
+    useEffect(() => {
+        if (questions.length > 0) {
+            hasStartedRef.current = true;
+        }
+    }, [questions.length]);
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            const currentFull = !!document.fullscreenElement;
+            setIsFullscreen(currentFull);
+
+            if (hasStartedRef.current && !isTerminatedRef.current) {
+                if (currentFull === false) {
+                    handleViolation('Fullscreen Exited');
+                }
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden' && hasStartedRef.current && !isTerminatedRef.current) {
+                handleViolation('Tab Switched/Minimized');
+            }
+        };
+
+        const handleBlur = () => {
+            if (hasStartedRef.current && !isTerminatedRef.current) {
+                handleViolation('Window Focus Lost');
+            }
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('blur', handleBlur);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (warningCount >= 3 && !isTerminated) {
+            terminateInterview('Proctoring violations (3/3 warnings)');
+        }
+    }, [warningCount, isTerminated]);
+
+    const enterFullscreen = async () => {
+        try {
+            const element = document.documentElement;
+            if (element.requestFullscreen) {
+                await element.requestFullscreen();
+            }
+        } catch (error) {
+            console.error('Failed to enter fullscreen', error);
+        }
+    };
+
+    const handleViolation = (type: string) => {
+        if (isTerminatedRef.current) return;
+        const now = Date.now();
+        if (now - lastViolationTimeRef.current < 2500) return;
+
+        lastViolationTimeRef.current = now;
+        const nextCount = warningCountRef.current + 1;
+        warningCountRef.current = nextCount;
+        setWarningCount(nextCount);
+    };
+
+    const terminateInterview = async (reason: string) => {
+        if (isTerminated) return;
+        isTerminatedRef.current = true;
+        setIsTerminated(true);
+
+        if (document.fullscreenElement) {
+            await document.exitFullscreen().catch(() => { });
+        }
+
+        try {
+            const response = await apiFetch(`/api/interview/${id}/submit`, {
+                method: 'POST',
+                body: JSON.stringify({ answers })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Submission failed.');
+
+            setTransitionData({ score: data.score, codingId: data.codingId || null });
+        } catch (error: any) {
+            alert(error.message || reason);
+            navigate('/student/dashboard');
+        }
+    };
 
     const fetchInterviewData = async () => {
         try {
@@ -97,6 +234,7 @@ const TakeInterview = () => {
     };
 
     const handleSubmit = async () => {
+        if (isTerminated) return;
         setIsSubmitting(true);
         try {
             const response = await apiFetch(`/api/interview/${id}/submit`, {
@@ -208,9 +346,130 @@ const TakeInterview = () => {
     const isLastQuestion = currentQuestionIdx === questions.length - 1;
     const answeredCount = Object.keys(answers).length;
     const progressPercent = (answeredCount / questions.length) * 100;
+    const mapSections = buildQuestionMapSections(questions.length);
+
+    if (isTerminated) {
+        return (
+            <div className="fullscreen-guard termination-screen">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="guard-content neo-card"
+                >
+                    <AlertTriangle size={48} className="text-error" />
+                    <h1 className="text-error">Interview Terminated</h1>
+                    <p>Your session has been terminated due to multiple rule violations (3/3 warnings). Results have been partially submitted.</p>
+                    <button onClick={() => navigate('/student/dashboard')} className="neo-btn-primary">Return to Dashboard</button>
+                </motion.div>
+                <style>{`
+                    .fullscreen-guard {
+                        height: 100vh;
+                        width: 100vw;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        z-index: 9999;
+                    }
+                    .guard-content {
+                        max-width: 520px;
+                        text-align: center;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        gap: 1.5rem;
+                        padding: 4rem;
+                        border: 1px solid rgba(255,255,255,0.05);
+                        background: rgba(20, 20, 22, 0.9);
+                        border-radius: 12px;
+                    }
+                    .termination-screen { background: rgba(20, 10, 10, 1); }
+                    .text-error { color: #ef4444; }
+                `}</style>
+            </div>
+        );
+    }
+
+    if (!isFullscreen) {
+        return (
+            <div className="fullscreen-guard">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="guard-content neo-card"
+                >
+                    {warningCount > 0 ? (
+                        <>
+                            <AlertTriangle size={64} className="text-warning pulse-warning" />
+                            <h1 className="text-warning" style={{ color: '#f97316' }}>Rule Violation Detected</h1>
+                            <div className="warning-status">
+                                <span className="warning-pill">Warning {warningCount} of 3</span>
+                            </div>
+                            <p>You have exited the secure interview environment. Continuing to do so will result in automatic termination.</p>
+                        </>
+                    ) : (
+                        <>
+                            <AlertTriangle size={48} style={{ color: '#6366f1' }} />
+                            <h1 style={{ color: 'white' }}>Secure Session Required</h1>
+                            <p>This interview requires an immersive environment. Please enable fullscreen to commence. Our proctoring system will monitor your session.</p>
+                        </>
+                    )}
+                    <button
+                        onClick={enterFullscreen}
+                        className="neo-btn-primary"
+                    >
+                        {warningCount > 0 ? "Resume Secure Session" : "Enter Fullscreen & Start"}
+                    </button>
+                </motion.div>
+                <style>{`
+                    .fullscreen-guard {
+                        height: 100vh;
+                        width: 100vw;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        z-index: 9999;
+                    }
+                    .guard-content {
+                        max-width: 520px;
+                        text-align: center;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        gap: 1.5rem;
+                        padding: 4rem;
+                        border: 1px solid rgba(255,255,255,0.05);
+                        background: rgba(20, 20, 22, 0.9);
+                        border-radius: 12px;
+                    }
+                    .warning-pill {
+                        background: rgba(249, 115, 22, 0.1);
+                        color: #f97316;
+                        padding: 0.5rem 1.5rem;
+                        border-radius: 20px;
+                        font-weight: 700;
+                        border: 1px solid rgba(249, 115, 22, 0.2);
+                    }
+                    .pulse-warning { animation: warning-pulse 1.5s infinite; }
+                    @keyframes warning-pulse {
+                        0% { transform: scale(1); }
+                        50% { transform: scale(1.05); }
+                        100% { transform: scale(1); }
+                    }
+                `}</style>
+            </div>
+        );
+    }
 
     return (
-        <div className="take-interview-container">
+        <div className={`take-interview-container ${isFullscreen ? 'fullscreen-active' : ''}`} ref={interviewShellRef}>
             {/* Header */}
             <header className="interview-header">
                 <div>
@@ -224,6 +483,9 @@ const TakeInterview = () => {
                     </div>
                     <div className="progress-bar-bg">
                         <div className="progress-bar-fill" style={{ width: `${progressPercent}%` }}></div>
+                    </div>
+                    <div className="warning-badge" title="Three warnings will end the interview automatically">
+                        Warnings: {warningCount}/3
                     </div>
                 </div>
             </header>
@@ -281,12 +543,12 @@ const TakeInterview = () => {
                             <button 
                                 className="neo-btn-primary submit-pulse" 
                                 onClick={() => setShowConfirmModal(true)}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || isTerminated}
                             >
                                 {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : 'Submit Final Interview'}
                             </button>
                         ) : (
-                            <button className="neo-btn-primary" onClick={handleNext}>
+                            <button className="neo-btn-primary" onClick={handleNext} disabled={isTerminated}>
                                 Next <ArrowRight size={18} />
                             </button>
                         )}
@@ -297,12 +559,7 @@ const TakeInterview = () => {
                 <aside className="question-nav-sidebar">
                     <h3>Question Map</h3>
 
-                    {[
-                        { label: 'DSA', color: '#6366f1', start: 0, end: 5 },
-                        { label: 'Logical', color: '#06b6d4', start: 5, end: 10 },
-                        { label: 'Verbal', color: '#8b5cf6', start: 10, end: 15 },
-                        { label: 'Technical', color: '#d97706', start: 15, end: 20 },
-                    ].map(section => (
+                    {mapSections.map(section => (
                         <div key={section.label} className="map-section">
                             <div className="map-section-label" style={{ color: section.color }}>
                                 {section.label}

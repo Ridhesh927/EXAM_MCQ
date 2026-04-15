@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { LogIn, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 import { setAuth } from '../../utils/auth';
+import { getLoginSchema } from '../../utils/validation';
 
 
 
@@ -29,8 +30,13 @@ const Login = () => {
       const trimmedIdentifier = identifier.trim();
       const trimmedPassword = password.trim();
 
-      if (!trimmedIdentifier || !trimmedPassword) {
-        setError('Please fill in all fields');
+      const parsed = getLoginSchema(isStudent ? 'student' : 'teacher').safeParse({
+        identifier: trimmedIdentifier,
+        password: trimmedPassword,
+      });
+
+      if (!parsed.success) {
+        setError(parsed.error.issues[0]?.message || 'Please enter valid credentials.');
         setLoading(false);
         return;
       }
@@ -40,8 +46,8 @@ const Login = () => {
         : 'http://localhost:5000/api/auth/teacher/login';
 
       const body = isStudent
-        ? { prn_number: trimmedIdentifier, password: trimmedPassword }
-        : { email: trimmedIdentifier, password: trimmedPassword };
+        ? { prn_number: parsed.data.identifier, password: parsed.data.password }
+        : { email: parsed.data.identifier, password: parsed.data.password };
 
       const response = await fetch(endpoint, {
         method: 'POST',

@@ -24,7 +24,8 @@
     "simple-peer": "^9.11.1",
     "socket.io-client": "^4.8.3",
     "three": "^0.182.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -31,10 +31,111 @@ const stripCodeFences = (text) => {
     if (!text) return '';
     return text
         .trim()
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<\/think>/gi, '')
+        .replace(/<think>/gi, '')
         .replace(/^```json\s*/i, '')
         .replace(/^```\s*/i, '')
         .replace(/```$/i, '')
         .trim();
+};
+
+const extractBalancedJson = (text) => {
+    if (!text) return null;
+
+    const start = text.search(/[\[{]/);
+    if (start === -1) return null;
+
+    const stack = [];
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < text.length; i++) {
+        const ch = text[i];
+
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (ch === '\\') {
+                escaped = true;
+            } else if (ch === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (ch === '"') {
+            inString = true;
+            continue;
+        }
+
+        if (ch === '{' || ch === '[') {
+            stack.push(ch);
+            continue;
+        }
+
+        if (ch === '}' || ch === ']') {
+            const open = stack[stack.length - 1];
+            if ((open === '{' && ch === '}') || (open === '[' && ch === ']')) {
+                stack.pop();
+                if (stack.length === 0) {
+                    return text.slice(start, i + 1);
+                }
+            } else {
+                return null;
+            }
+        }
+    }
+
+    return null;
+};
+
+const parseJsonFromResponse = (content) => {
+    const cleaned = stripCodeFences(content);
+
+    try {
+        return JSON.parse(cleaned);
+    } catch (initialError) {
+        const extracted = extractBalancedJson(cleaned);
+        if (!extracted) {
+            throw initialError;
+        }
+
+        return JSON.parse(extracted);
+    }
+};
+
+const callProvider = async (provider, {
+    prompt,
+    role,
+    jsonMode,
+    temperature,
+    maxTokens,
+    groqModel,
+    geminiModel,
+}) => {
+    if (provider === 'groq') {
+        return callGroq({
+            prompt,
+            role,
+            jsonMode,
+            temperature,
+            maxTokens,
+            model: groqModel,
+        });
+    }
+
+    if (provider === 'gemini') {
+        return callGemini({
+            prompt,
+            jsonMode,
+            temperature,
+            maxTokens,
+            model: geminiModel,
+        });
+    }
+
+    throw new Error(`Unsupported provider: ${provider}`);
 };
 
 const callGroq = async ({ prompt, role, jsonMode, temperature, maxTokens, model }) => {
@@ -42,20 +143,32 @@ const callGroq = async ({ prompt, role, jsonMode, temperature, maxTokens, model 
         throw new Error('GROQ_API_KEY is not configured');
     }
 
-    const completion = await groqClient.chat.completions.create({
-        messages: [{ role: role || 'user', content: prompt }],
-        model: model || 'llama-3.3-70b-versatile',
-        temperature: typeof temperature === 'number' ? temperature : 0.7,
-        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-        ...(maxTokens ? { max_tokens: maxTokens } : {}),
-    });
+    console.log('[Groq] Calling API with model:', model || 'llama-3.3-70b-versatile');
+    
+    try {
+        const completion = await groqClient.chat.completions.create({
+            messages: [{ role: role || 'user', content: prompt }],
+            model: model || 'llama-3.3-70b-versatile',
+            temperature: typeof temperature === 'number' ? temperature : 0.7,
+            ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+            ...(maxTokens ? { max_tokens: maxTokens } : {}),
+        });
 
-    const content = completion.choices[0]?.message?.content;
-    if (!content) {
-        throw new Error('No response from Groq');
+        const content = completion.choices[0]?.message?.content;
+        if (!content) {
+            throw new Error('No response from Groq');
+        }
+
+        console.log('[Groq] Success - Response length:', content.length);
+        return content;
+    } catch (error) {
+        console.error('[Groq] API Error:', {
+            message: error.message,
+            status: error.status,
+            code: error.code,
+        });
+        throw error;
     }
-
-    return content;
 };
 
 const callGemini = async ({ prompt, jsonMode, temperature, maxTokens, model }) => {
@@ -99,28 +212,16 @@ const callWithFallback = async ({
 
     for (const provider of order) {
         try {
-            if (provider === 'groq') {
-                const content = await callGroq({
-                    prompt,
-                    role,
-                    jsonMode,
-                    temperature,
-                    maxTokens,
-                    model: groqModel,
-                });
-                return { providerUsed: 'groq', content };
-            }
-
-            if (provider === 'gemini') {
-                const content = await callGemini({
-                    prompt,
-                    jsonMode,
-                    temperature,
-                    maxTokens,
-                    model: geminiModel,
-                });
-                return { providerUsed: 'gemini', content };
-            }
+            const content = await callProvider(provider, {
+                prompt,
+                role,
+                jsonMode,
+                temperature,
+                maxTokens,
+                groqModel,
+                geminiModel,
+            });
+            return { providerUsed: provider, content };
         } catch (error) {
             errors.push(`${provider}: ${error.message}`);
         }
@@ -130,17 +231,34 @@ const callWithFallback = async ({
 };
 
 const generateJson = async (options) => {
-    const { content, providerUsed } = await callWithFallback({ ...options, jsonMode: true });
-    const cleaned = stripCodeFences(content);
+    const order = getProviderOrder(options.preferredProvider);
+    const errors = [];
 
-    try {
-        return {
-            providerUsed,
-            data: JSON.parse(cleaned),
-        };
-    } catch (error) {
-        throw new Error(`Invalid JSON from ${providerUsed}: ${error.message}`);
+    for (const provider of order) {
+        try {
+            const content = await callProvider(provider, {
+                ...options,
+                jsonMode: true,
+            });
+
+            const parsed = parseJsonFromResponse(content);
+            
+            console.log(`[AI] ${provider} succeeded - Generated JSON with ${JSON.stringify(parsed).length} chars`);
+            
+            return {
+                providerUsed: provider,
+                data: parsed,
+            };
+        } catch (error) {
+            const errorMsg = `${provider}: ${error.message}`;
+            errors.push(errorMsg);
+            console.error(`[AI] ${provider} failed:`, error.message);
+        }
     }
+
+    const fullError = `All AI providers failed to produce valid JSON. ${errors.join(' | ')}`;
+    console.error('[AI] All providers exhausted:', fullError);
+    throw new Error(fullError);
 };
 
 const generateText = async (options) => {

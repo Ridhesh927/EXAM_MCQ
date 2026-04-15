@@ -40,6 +40,28 @@ const os = require('os');
 const { exec } = require('child_process');
 const crypto = require('crypto');
 
+const normalizeTestCaseStats = (rawStats, fallbackTotal = 6) => {
+    const total = Math.max(1, Number.parseInt(rawStats?.total_test_cases, 10) || fallbackTotal);
+    const passed = Math.max(0, Number.parseInt(rawStats?.passed_test_cases, 10) || 0);
+    const failed = Math.max(0, Number.parseInt(rawStats?.failed_test_cases, 10) || 0);
+    const completedRaw = Number.parseInt(rawStats?.completed_test_cases, 10);
+    const completed = Number.isNaN(completedRaw) ? passed + failed : Math.max(0, completedRaw);
+
+    const cappedCompleted = Math.min(total, completed);
+    const cappedPassed = Math.min(cappedCompleted, passed);
+    const maxFailed = cappedCompleted - cappedPassed;
+    const cappedFailed = Math.min(maxFailed, failed);
+    const remaining = Math.max(0, total - cappedCompleted);
+
+    return {
+        total_test_cases: total,
+        completed_test_cases: cappedCompleted,
+        passed_test_cases: cappedPassed,
+        failed_test_cases: cappedFailed,
+        remaining_test_cases: remaining,
+    };
+};
+
 exports.executeCode = async (req, res) => {
     try {
         const { language, sourceCode, stdin = '', codingId, questionIndex } = req.body;
@@ -111,7 +133,11 @@ exports.executeCode = async (req, res) => {
         });
 
         // Concurrently run AI Testing if codingId is present
-        let aiPromise = Promise.resolve('');
+        let aiPromise = Promise.resolve({
+            status: 'fail',
+            feedback: '',
+            testCaseStats: null,
+        });
         if (codingId !== undefined && questionIndex !== undefined) {
             aiPromise = (async () => {
                 const [rows] = await pool.query('SELECT questions FROM coding_interviews WHERE id = ?', [codingId]);
@@ -119,8 +145,9 @@ exports.executeCode = async (req, res) => {
                     const questions = typeof rows[0].questions === 'string' ? JSON.parse(rows[0].questions) : rows[0].questions;
                     const q = questions[questionIndex];
                     if (q) {
+                        const fallbackTotal = Math.max((q.examples?.length || 0) + 5, 6);
                         const prompt = `
-You are a testing suite. The student just clicked 'Run Code' to test their solution.
+You are an automated coding test suite. The student just clicked 'Run Code' to test their solution.
 Problem: ${q.title}
 Description: ${q.description}
 Examples/Tests: ${JSON.stringify(q.examples)}
@@ -132,22 +159,66 @@ ${sourceCode}
 \`\`\`
 
 Evaluate ONLY if this code correctly solves the problem for all standard test cases and edge cases.
-- If it is fully correct, output exactly: "✅ All Example and Hidden Test Cases Passed!"
-- If it has a bug, logic flaw, or fails a case, output a concise message like: "❌ Failed: Your code fails for input X. It returns Y instead of Z." or "❌ Failed: Logic error on line 4..."
-Do NOT provide the correct code. Just verify execution correctness. Keep it to 1-3 sentences max.
+
+Return ONLY valid JSON with this exact structure:
+{
+  "status": "pass" | "fail",
+  "feedback": "1-3 sentences describing correctness and key failure if any.",
+  "total_test_cases": <integer>,
+  "completed_test_cases": <integer>,
+  "passed_test_cases": <integer>,
+  "failed_test_cases": <integer>,
+  "remaining_test_cases": <integer>
+}
+
+Rules for counts:
+- completed_test_cases = passed_test_cases + failed_test_cases
+- remaining_test_cases = total_test_cases - completed_test_cases
+- Keep all values non-negative integers.
+Do NOT provide corrected code.
 `;
-                        return await callAIText(prompt);
+
+                        try {
+                            const parsed = await callAI(prompt);
+                            return {
+                                status: parsed.status || 'fail',
+                                feedback: parsed.feedback || '',
+                                testCaseStats: normalizeTestCaseStats(parsed, fallbackTotal),
+                            };
+                        } catch (aiErr) {
+                            logger('WARN', 'AI test-case analysis fallback to text mode', { error: aiErr.message });
+                            const feedback = await callAIText(prompt);
+                            return {
+                                status: /passed/i.test(feedback) ? 'pass' : 'fail',
+                                feedback: feedback || '',
+                                testCaseStats: normalizeTestCaseStats(null, fallbackTotal),
+                            };
+                        }
                     }
                 }
-                return '';
+                return { status: 'fail', feedback: '', testCaseStats: null };
             })();
         }
 
-        const [localResult, aiFeedback] = await Promise.all([executeLocal(), aiPromise]);
+        const [localResult, aiResult] = await Promise.all([executeLocal(), aiPromise]);
+
+        let testCaseStats = aiResult.testCaseStats;
+        if (localResult.status?.id !== 3) {
+            const total = testCaseStats?.total_test_cases || 6;
+            testCaseStats = {
+                total_test_cases: total,
+                completed_test_cases: 0,
+                passed_test_cases: 0,
+                failed_test_cases: 0,
+                remaining_test_cases: total,
+            };
+        }
 
         res.json({
             ...localResult,
-            ai_test_feedback: aiFeedback
+            ai_test_status: aiResult.status,
+            ai_test_feedback: aiResult.feedback,
+            test_case_stats: testCaseStats,
         });
 
     } catch (error) {
@@ -156,6 +227,8 @@ Do NOT provide the correct code. Just verify execution correctness. Keep it to 1
     }
 };
 
+const questionStore = require('../utils/questionStore');
+
 // ─────────────────────────────────────────────
 // 1. Generate 2-Question Coding Round
 // ─────────────────────────────────────────────
@@ -163,72 +236,103 @@ exports.generateCodingRound = async (req, res) => {
     try {
         const studentId = req.user.id;
         const { includeHard = false, company = 'General', roundType = 'coding' } = req.body;
-        const provenanceMode = 'pattern-simulated';
-
+        
         const allowedRoundTypes = new Set(['coding', 'aptitude', 'mixed']);
         const safeRoundType = allowedRoundTypes.has(roundType) ? roundType : 'coding';
         const companyProfile = getCompanyProfile(company);
 
-        const levelA = includeHard ? 'Medium' : 'Easy';
-        const levelB = includeHard ? 'Hard'   : 'Medium';
+        let enrichedQuestions = [];
+        let provenanceMode = 'ai-generated';
 
-        const topicGuidance = safeRoundType === 'coding'
-            ? `Prioritize coding patterns usually seen in ${companyProfile.name} assessments: ${companyProfile.codingPatterns.join(', ')}.`
-            : safeRoundType === 'aptitude'
-                ? `Prioritize aptitude-to-coding style problem statements inspired by ${companyProfile.name}: ${companyProfile.aptitudePatterns.join(', ')}.`
-                : `Mix one coding-heavy and one aptitude-style coding problem aligned with ${companyProfile.name}. Use these references: Coding(${companyProfile.codingPatterns.join(', ')}), Aptitude(${companyProfile.aptitudePatterns.join(', ')}).`;
+        // Priority 1: Pick from CSV Dataset if available
+        if (questionStore.hasQuestions()) {
+            const levelA = includeHard ? 'Medium' : 'Easy';
+            const levelB = includeHard ? 'Hard' : 'Medium';
 
-        const prompt = `
-You are a senior software engineer setting a coding interview.
-Generate 2 classic DSA problems (like LeetCode style). One should be ${levelA} difficulty, the other ${levelB} difficulty.
-Focus on core DSA topics: Arrays, Strings, Hashmaps, Two Pointers, Sliding Window, Recursion, Dynamic Programming, Trees, or Graphs.
-${topicGuidance}
-Context note about this company pattern: ${companyProfile.notes}
-Make problems realistic for online assessment rounds and include practical edge cases.
+            const q1 = questionStore.getRandomQuestions(levelA, 1)[0];
+            const q2 = questionStore.getRandomQuestions(levelB, 1)[0];
 
-Return ONLY a JSON object with this exact structure:
-{
-  "questions": [
-    {
-      "title": "Problem title here",
-      "difficulty": "${levelA}",
-      "description": "Full problem statement, clear and unambiguous.",
-      "examples": [
-        { "input": "nums = [1,2,3]", "output": "6", "explanation": "Sum of all elements" }
-      ],
-      "constraints": "1 <= nums.length <= 10^5\\n-10^9 <= nums[i] <= 10^9",
-      "hint": "Think about using a hashmap for O(n) solution."
-    },
-    {
-      "title": "Problem title here",
-      "difficulty": "${levelB}",
-      "description": "Full problem statement.",
-      "examples": [
-        { "input": "s = 'abcabcbb'", "output": "3", "explanation": "The answer is 'abc'" }
-      ],
-      "constraints": "0 <= s.length <= 5 * 10^4",
-      "hint": "Consider using sliding window technique."
-    }
-  ]
-}
-`;
-
-        logger('INFO', `Generating coding round for student ${studentId}`, { includeHard });
-        const parsed = await callAI(prompt);
-
-        if (!parsed.questions || parsed.questions.length < 2) {
-            throw new Error('AI returned invalid question format. Try again.');
+            if (q1 && q2) {
+                enrichedQuestions = [q1, q2].map((q, idx) => ({
+                    title: q.title,
+                    difficulty: q.difficulty,
+                    description: q.description,
+                    examples: q.examples,
+                    constraints: q.constraints.join?.('\n') || String(q.constraints),
+                    hint: "Think about the main idea first, then choose a data structure that lets you update and look up information in constant time.", // default hint for CSV
+                    source_company: companyProfile.name,
+                    round_type: safeRoundType,
+                    sequence: idx + 1,
+                    provenance_mode: 'dataset-csv'
+                }));
+                provenanceMode = 'dataset-csv';
+                logger('INFO', `Selected 2 questions from CSV dataset for student ${studentId}`);
+            }
         }
 
-        const enrichedQuestions = parsed.questions.slice(0, 2).map((question, index) => ({
-            ...question,
-            source_company: companyProfile.name,
-            round_type: safeRoundType,
-            sequence: index + 1,
-            provenance_mode: provenanceMode,
-            source_evidence: null,
-            history_note: `This question follows ${companyProfile.name}-style patterns and is AI-generated, not a verified historical asked-question record.`
-        }));
+        // Priority 2: Standard AI Generation (with CSV knowledge)
+        if (enrichedQuestions.length < 2) {
+            const samples = questionStore.getSamplesForAI(2);
+            const sampleText = samples.length > 0 
+                ? `Here are some stylistic examples from my dataset: ${JSON.stringify(samples)}` 
+                : '';
+
+            provenanceMode = 'pattern-simulated';
+            const levelA = includeHard ? 'Medium' : 'Easy';
+            const levelB = includeHard ? 'Hard'   : 'Medium';
+
+            const topicGuidance = safeRoundType === 'coding'
+                ? `Prioritize coding patterns usually seen in ${companyProfile.name} assessments: ${companyProfile.codingPatterns.join(', ')}.`
+                : safeRoundType === 'aptitude'
+                    ? `Prioritize aptitude-to-coding style problem statements inspired by ${companyProfile.name}: ${companyProfile.aptitudePatterns.join(', ')}.`
+                    : `Mix one coding-heavy and one aptitude-style coding problem aligned with ${companyProfile.name}.`;
+
+            const prompt = `
+    You are a senior software engineer setting a coding interview.
+    Generate 2 DSA problems. One should be ${levelA} difficulty, the other ${levelB}.
+    ${sampleText}
+    ${topicGuidance}
+    Make problems realistic and include practical edge cases.
+    
+    Return ONLY a JSON object:
+    {
+      "questions": [
+        {
+          "title": "...",
+          "difficulty": "${levelA}",
+          "description": "...",
+          "examples": [{ "input": "...", "output": "...", "explanation": "..." }],
+          "constraints": "...",
+          "hint": "..."
+        },
+        {
+          "title": "...",
+          "difficulty": "${levelB}",
+          "description": "...",
+          "examples": [{ "input": "...", "output": "...", "explanation": "..." }],
+          "constraints": "...",
+          "hint": "..."
+        }
+      ]
+    }
+    `;
+
+            logger('INFO', `Generating coding round for student ${studentId} via AI`, { includeHard });
+            const parsed = await callAI(prompt);
+
+            if (!parsed.questions || parsed.questions.length < 2) {
+                throw new Error('AI returned invalid question format. Try again.');
+            }
+
+            enrichedQuestions = parsed.questions.slice(0, 2).map((question, index) => ({
+                ...question,
+                source_company: companyProfile.name,
+                round_type: safeRoundType,
+                sequence: index + 1,
+                provenance_mode: provenanceMode,
+                source_evidence: null
+            }));
+        }
 
         const [result] = await pool.query(
             'INSERT INTO coding_interviews (student_id, include_hard, questions) VALUES (?, ?, ?)',
@@ -305,7 +409,7 @@ exports.submitCodingRound = async (req, res) => {
     try {
         const studentId = req.user.id;
         const { id } = req.params;
-        const { q1Code, q2Code, language = 'javascript' } = req.body;
+        const { q1Code, q2Code, language = 'javascript', completionTimeSeconds = 0 } = req.body;
 
         const [rows] = await pool.query(
             'SELECT * FROM coding_interviews WHERE id = ? AND student_id = ?',
@@ -317,6 +421,7 @@ exports.submitCodingRound = async (req, res) => {
         const questions = typeof round.questions === 'string' ? JSON.parse(round.questions) : round.questions;
         const q1 = questions[0];
         const q2 = questions[1];
+        const safeCompletionTime = Math.max(0, Number.parseInt(completionTimeSeconds, 10) || 0);
 
         const prompt = `
 You are a senior algorithmic interviewer. A student just submitted code for 2 DSA problems.
@@ -370,8 +475,8 @@ Return ONLY a JSON object:
         ].join('\n');
 
         await pool.query(
-            'UPDATE coding_interviews SET student_codes = ?, language = ?, total_score = ?, ai_feedback = ? WHERE id = ?',
-            [JSON.stringify(studentCodes), language, score, feedbackText, id]
+            'UPDATE coding_interviews SET student_codes = ?, language = ?, total_score = ?, ai_feedback = ?, completion_time_seconds = ?, submitted_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [JSON.stringify(studentCodes), language, score, feedbackText, safeCompletionTime, id]
         );
 
         logger('INFO', `Coding round ${id} graded`, { score });
@@ -385,7 +490,7 @@ Return ONLY a JSON object:
             `/student/results`
         );
 
-        res.status(200).json({ score, feedback: feedbackText });
+        res.status(200).json({ score, feedback: feedbackText, completionTimeSeconds: safeCompletionTime });
 
     } catch (error) {
         logger('ERROR', 'Error grading coding round', { error: error.message });
@@ -400,7 +505,7 @@ exports.getCodingHistory = async (req, res) => {
     try {
         const studentId = req.user.id;
         const [rows] = await pool.query(
-            'SELECT id, include_hard, total_score, ai_feedback, language, created_at FROM coding_interviews WHERE student_id = ? ORDER BY created_at DESC',
+            'SELECT id, include_hard, total_score, ai_feedback, language, completion_time_seconds, submitted_at, created_at FROM coding_interviews WHERE student_id = ? ORDER BY created_at DESC',
             [studentId]
         );
         res.status(200).json({ history: rows });

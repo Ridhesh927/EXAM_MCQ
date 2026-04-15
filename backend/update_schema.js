@@ -104,6 +104,19 @@ async function update() {
             console.log("Schema added parsed_skills column to students");
         }
 
+        // --- Coding Interviews table updates ---
+        const [codingDesc] = await pool.query('DESCRIBE coding_interviews');
+        const codingColumns = codingDesc.map(c => c.Field);
+
+        if (!codingColumns.includes('completion_time_seconds')) {
+            await pool.query("ALTER TABLE coding_interviews ADD COLUMN completion_time_seconds INT DEFAULT 0");
+            console.log("Schema added completion_time_seconds column to coding_interviews");
+        }
+        if (!codingColumns.includes('submitted_at')) {
+            await pool.query("ALTER TABLE coding_interviews ADD COLUMN submitted_at TIMESTAMP NULL DEFAULT NULL");
+            console.log("Schema added submitted_at column to coding_interviews");
+        }
+
         // --- New Interview Tables ---
         await pool.query(`
             CREATE TABLE IF NOT EXISTS interviews (

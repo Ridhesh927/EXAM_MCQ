@@ -11,6 +11,9 @@ interface InterviewPrepHubProps {
     standalone?: boolean;
 }
 
+const MIN_QUESTION_COUNT = 20;
+const MAX_QUESTION_COUNT = 40;
+
 interface Interview {
     id: number;
     job_role_target: string;
@@ -36,6 +39,8 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
     // Generation State
     const [targetRole, setTargetRole] = useState('');
     const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+    const [questionCount, setQuestionCount] = useState<number>(20);
+    const [questionCountInput, setQuestionCountInput] = useState<string>('20');
     const [isGenerating, setIsGenerating] = useState(false);
     const [activeTab, setActiveTab] = useState<'practice' | 'history' | 'analytics'>('practice');
     const [activePracticeTab, setActivePracticeTab] = useState<'resume' | 'interview' | 'coding'>('resume');
@@ -146,15 +151,35 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
         }
     };
 
+    const clampQuestionCount = (value: number) => Math.min(MAX_QUESTION_COUNT, Math.max(MIN_QUESTION_COUNT, value));
+
+    const syncQuestionCount = (value: number) => {
+        const normalized = clampQuestionCount(value);
+        setQuestionCount(normalized);
+        setQuestionCountInput(String(normalized));
+    };
+
+    const commitQuestionCountInput = () => {
+        const parsed = parseInt(questionCountInput, 10);
+        if (Number.isNaN(parsed)) {
+            setQuestionCountInput(String(questionCount));
+            return;
+        }
+        syncQuestionCount(parsed);
+    };
+
     const handleGenerate = async () => {
         if (!targetRole.trim() || !hasResume) return;
+
+        commitQuestionCountInput();
+        const finalQuestionCount = clampQuestionCount(parseInt(questionCountInput, 10) || questionCount);
         
         setIsGenerating(true);
         try {
             const response = await apiFetch('/api/interview/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ jobRoleTarget: targetRole, difficulty })
+                body: JSON.stringify({ jobRoleTarget: targetRole, difficulty, questionCount: finalQuestionCount })
             });
             const data = await response.json();
             
@@ -345,6 +370,7 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                         <div className="difficulty-selector">
                                             {(['easy', 'medium', 'hard'] as const).map(level => (
                                                 <button
+                                                    type="button"
                                                     key={level}
                                                     className={`diff-btn diff-btn--${level} ${difficulty === level ? 'active' : ''}`}
                                                     onClick={() => setDifficulty(level)}
@@ -358,15 +384,65 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                             ))}
                                         </div>
                                     </div>
+                                    <div className="form-group">
+                                        <label>Number of Questions (20 to 40)</label>
+                                        <div className="question-count-control">
+                                            <div className="question-count-top-row">
+                                                <input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    pattern="[0-9]*"
+                                                    className="neo-input question-count-text-input"
+                                                    value={questionCountInput}
+                                                    onChange={(e) => {
+                                                        const raw = e.target.value.replace(/\s+/g, '');
+                                                        if (raw === '') {
+                                                            setQuestionCountInput('');
+                                                            return;
+                                                        }
+
+                                                        if (!/^\d+$/.test(raw)) return;
+
+                                                        setQuestionCountInput(raw);
+                                                        const parsed = parseInt(raw, 10);
+                                                        if (!Number.isNaN(parsed)) {
+                                                            setQuestionCount(clampQuestionCount(parsed));
+                                                        }
+                                                    }}
+                                                    onBlur={commitQuestionCountInput}
+                                                    disabled={isGenerating}
+                                                    aria-label="Question count"
+                                                />
+                                                <span className="question-count-current">Selected: {questionCount}</span>
+                                            </div>
+
+                                            <input
+                                                type="range"
+                                                min={MIN_QUESTION_COUNT}
+                                                max={MAX_QUESTION_COUNT}
+                                                step={1}
+                                                value={questionCount}
+                                                onChange={(e) => syncQuestionCount(parseInt(e.target.value, 10))}
+                                                className="question-count-range"
+                                                disabled={isGenerating}
+                                                aria-label="Question count slider"
+                                            />
+
+                                            <div className="question-count-hints">
+                                                <span>{MIN_QUESTION_COUNT}</span>
+                                                <span>{MAX_QUESTION_COUNT}</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <button 
                                         className="neo-btn-primary full-width mt-4"
                                         onClick={handleGenerate}
                                         disabled={isGenerating || !targetRole.trim()}
                                     >
                                         {isGenerating ? (
-                                            <><Loader2 className="animate-spin" size={18} /> Building your {difficulty} interview...</>
+                                            <><Loader2 className="animate-spin" size={18} /> Building your {difficulty} {questionCount}-question interview...</>
                                         ) : (
-                                            <><Sparkles size={18} /> Generate 20-Question Session</>
+                                            <><Sparkles size={18} /> Generate {questionCount}-Question Session</>
                                         )}
                                     </button>
                                 </div>
@@ -396,22 +472,28 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                         <label>Round Focus</label>
                                         <div className="difficulty-selector">
                                             <button
-                                                className={`diff-btn ${codingRoundType === 'coding' ? 'active' : ''}`}
+                                                type="button"
+                                                className={`diff-btn round-focus-btn ${codingRoundType === 'coding' ? 'active' : ''}`}
                                                 onClick={() => setCodingRoundType('coding')}
+                                                aria-pressed={codingRoundType === 'coding'}
                                                 disabled={isStartingCoding}
                                             >
                                                 Coding
                                             </button>
                                             <button
-                                                className={`diff-btn ${codingRoundType === 'aptitude' ? 'active' : ''}`}
+                                                type="button"
+                                                className={`diff-btn round-focus-btn ${codingRoundType === 'aptitude' ? 'active' : ''}`}
                                                 onClick={() => setCodingRoundType('aptitude')}
+                                                aria-pressed={codingRoundType === 'aptitude'}
                                                 disabled={isStartingCoding}
                                             >
                                                 Aptitude Style
                                             </button>
                                             <button
-                                                className={`diff-btn ${codingRoundType === 'mixed' ? 'active' : ''}`}
+                                                type="button"
+                                                className={`diff-btn round-focus-btn ${codingRoundType === 'mixed' ? 'active' : ''}`}
                                                 onClick={() => setCodingRoundType('mixed')}
+                                                aria-pressed={codingRoundType === 'mixed'}
                                                 disabled={isStartingCoding}
                                             >
                                                 Mixed
@@ -473,7 +555,7 @@ const InterviewPrepHub = ({ standalone = false }: InterviewPrepHubProps) => {
                                     <Sparkles size={20} className="text-accent" />
                                     <div>
                                         <strong>Pro Tip:</strong>
-                                        <p>Tailor your "Target Job Role" to the specific position you're applying for. Personalized Mode blends role expectations with resume evidence, then generates 20 custom questions (5 DSA, 5 Logical, 5 Verbal, 5 Technical).</p>
+                                        <p>Tailor your "Target Job Role" to the specific position you're applying for. Personalized Mode blends role expectations with resume evidence, then generates a balanced set of 20 to 40 custom questions across DSA, Logical, Verbal, and Technical sections.</p>
                                     </div>
                                 </div>
                                 <div className="session-summary mt-8">

@@ -167,6 +167,8 @@ CREATE TABLE IF NOT EXISTS coding_interviews (
     language VARCHAR(50) DEFAULT 'javascript',
     total_score INT DEFAULT 0,
     ai_feedback TEXT DEFAULT NULL,
+    completion_time_seconds INT DEFAULT 0,
+    submitted_at TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
 );

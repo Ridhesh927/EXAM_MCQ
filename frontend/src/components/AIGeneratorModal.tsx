@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, Loader2, Plus, Trash2, Upload, FileText, ImageIcon } from 'lucide-react';
 import { getToken } from '../utils/auth';
+import { aiGenerationInputSchema, aiUploadFileSchema } from '../utils/validation';
 
 interface AIGeneratorModalProps {
     isOpen: boolean;
@@ -24,9 +25,10 @@ const REFERENCE_CATEGORIES = [
 ];
 
 const AI_PROVIDERS = [
-    { value: 'auto', label: 'Auto (fallback between Groq/Gemini)' },
+    { value: 'auto', label: 'Auto (fallback between Groq/Gemini/K2)' },
     { value: 'groq', label: 'Groq only' },
     { value: 'gemini', label: 'Gemini only' },
+    { value: 'k2', label: 'K2 Think only' },
 ];
 
 const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, onAddQuestions }) => {
@@ -56,21 +58,32 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
     }, [isOpen]);
 
     const handleGenerate = async () => {
-        if (!context.trim() && !selectedFile && !category.trim()) {
-            setError('Please provide some context, upload a file, or select a reference category.');
+        const parsed = aiGenerationInputSchema.safeParse({
+            context,
+            hasFile: !!selectedFile,
+            category,
+            count,
+            difficulty,
+            provider,
+        });
+
+        if (!parsed.success) {
+            setError(parsed.error.issues[0]?.message || 'Please provide valid generation inputs.');
             return;
         }
+
+        const validated = parsed.data;
 
         setError('');
         setIsGenerating(true);
 
         try {
             const formData = new FormData();
-            formData.append('context', context);
-            formData.append('count', count.toString());
-            formData.append('difficulty', difficulty);
-            formData.append('category', category);
-            formData.append('provider', provider);
+            formData.append('context', validated.context);
+            formData.append('count', validated.count.toString());
+            formData.append('difficulty', validated.difficulty);
+            formData.append('category', validated.category);
+            formData.append('provider', validated.provider);
             if (selectedFile) {
                 formData.append('file', selectedFile);
             }
@@ -91,7 +104,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                     question: q.question,
                     options: q.options.map((opt: string) => opt),
                     correct_answer: q.correct_answer,
-                    marks: difficulty === 'Hard' ? 4 : difficulty === 'Medium' ? 2 : 1
+                    marks: validated.difficulty === 'Hard' ? 4 : validated.difficulty === 'Medium' ? 2 : 1
                 }));
                 setGeneratedQuestions(formatted);
                 setReferenceUsed(data.meta?.referenceUsed ?? false);
@@ -130,15 +143,13 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
-            const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
-            if (!validTypes.includes(file.type)) {
-                setError('Invalid file type. Please upload a PDF or Image (JPG/PNG).');
+
+            const parsed = aiUploadFileSchema.safeParse(file);
+            if (!parsed.success) {
+                setError(parsed.error.issues[0]?.message || 'Invalid file upload.');
                 return;
             }
-            if (file.size > 5 * 1024 * 1024) {
-                setError('File too large. Max size is 5MB.');
-                return;
-            }
+
             setSelectedFile(file);
             setError('');
         }

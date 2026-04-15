@@ -19,8 +19,23 @@ interface CodingRound {
     language: string;
     total_score: number;
     ai_feedback: string;
+    completion_time_seconds?: number;
+    submitted_at?: string;
     created_at: string;
 }
+
+const formatElapsedTime = (totalSeconds: number) => {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const seconds = safeSeconds % 60;
+
+    if (hours > 0) {
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
 
 const DIFF_COLOR: Record<string, string> = {
     Easy: '#22c55e',
@@ -55,6 +70,7 @@ const CodingResults = () => {
     const handleDownload = () => {
         if (!round) return;
         const date = new Date(round.created_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+        const timeTaken = formatElapsedTime(round.completion_time_seconds || 0);
 
         const questionsHTML = round.questions.map((q, i) => {
             const code = i === 0 ? round.student_codes?.q1 : round.student_codes?.q2;
@@ -70,7 +86,7 @@ const CodingResults = () => {
         <style>body{font-family:Arial,sans-serif;max-width:820px;margin:0 auto;padding:30px;color:#1a1a1a;} @media print{@page{margin:20mm;}}</style>
         </head><body>
         <h1 style="font-size:22px;margin-bottom:4px">DSA Coding Round — Results</h1>
-        <p style="color:#6b7280;font-size:13px;margin-bottom:4px">Date: ${date} &nbsp;|&nbsp; Score: <strong>${round.total_score}%</strong></p>
+        <p style="color:#6b7280;font-size:13px;margin-bottom:4px">Date: ${date} &nbsp;|&nbsp; Score: <strong>${round.total_score}%</strong> &nbsp;|&nbsp; Time Taken: <strong>${timeTaken}</strong></p>
         <hr style="margin:16px 0;border-color:#e5e7eb">
         <h2 style="font-size:16px;margin-bottom:12px">💻 Code Submissions</h2>
         ${questionsHTML}
@@ -112,6 +128,21 @@ const CodingResults = () => {
                     <span className="score-pct">/ 100</span>
                 </div>
             </header>
+
+            <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Time Taken</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                        {formatElapsedTime(round.completion_time_seconds || 0)}
+                    </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Submitted At</div>
+                    <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                        {round.submitted_at ? new Date(round.submitted_at).toLocaleString('en-IN') : 'Not submitted yet'}
+                    </div>
+                </div>
+            </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '10px', marginBottom: '20px' }}>
                 {round.parent_interview_id && (

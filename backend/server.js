@@ -8,6 +8,10 @@ const rateLimit = require('express-rate-limit');
 const { initDB } = require('./src/config/db');
 require('dotenv').config();
 
+console.log('[ENV CHECK] Env variables loaded:');
+console.log('[ENV CHECK] GROQ_API_KEY available:', !!process.env.GROQ_API_KEY);
+console.log('[ENV CHECK] GEMINI_API_KEY available:', !!process.env.GEMINI_API_KEY);
+
 if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET is required. Refusing to start with insecure defaults.');
 }

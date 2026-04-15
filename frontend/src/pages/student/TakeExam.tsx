@@ -23,7 +23,7 @@ const TakeExam = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [timeLeft, setTimeLeft] = useState<number>(3600); // default, will be overridden by exam data
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
   const [warningCount, setWarningCount] = useState(0);

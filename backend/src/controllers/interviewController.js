@@ -150,7 +150,12 @@ exports.uploadResume = async (req, res) => {
 exports.generateInterview = async (req, res) => {
     try {
         const studentId = req.user.id;
-        const { jobRoleTarget, difficulty = 'medium' } = req.body;
+        const { jobRoleTarget, difficulty = 'medium', questionCount = 20 } = req.body;
+
+        const requestedCount = parseInt(questionCount, 10);
+        const totalQuestionCount = Number.isNaN(requestedCount)
+            ? 20
+            : Math.min(40, Math.max(20, requestedCount));
 
         if (!jobRoleTarget) return res.status(400).json({ error: 'Target job role is required' });
 
@@ -159,7 +164,7 @@ exports.generateInterview = async (req, res) => {
             switch (level) {
                 case 'easy':
                     return `DIFFICULTY: EASY — Generate beginner-friendly questions.
-                    - All 5 questions should be straightforward and conceptual (no tricks, no edge cases).
+                    - Questions in each category should be straightforward and conceptual (no tricks, no edge cases).
                     - Use simple language; focus on definitions, basic syntax, and everyday use-cases.
                     - Difficulty split: 4 Easy + 1 Medium.`;
                 case 'hard':
@@ -208,7 +213,12 @@ exports.generateInterview = async (req, res) => {
         const resumeSkillsText = topResumeSkills.length > 0 ? topResumeSkills.join(', ') : 'No explicit skills extracted';
         const suggestedRolesText = topSuggestedRoles.length > 0 ? topSuggestedRoles.join(', ') : 'No role suggestions available';
 
-        logger('INFO', `Generating 15-question interview for student ${studentId}`, { role: jobRoleTarget });
+        logger('INFO', `Preparing ${totalQuestionCount}-question interview for student ${studentId}`, {
+            role: jobRoleTarget,
+            difficulty,
+        });
+
+        const highVolumeMode = totalQuestionCount > 30;
 
         // Helper function for parallel generation
         const fetchQuestionsForCategory = async (category, count, promptDetails) => {
@@ -243,30 +253,141 @@ exports.generateInterview = async (req, res) => {
             }
             `;
 
-            const { data: content } = await generateJson({
-                prompt,
-                role: 'user',
-                preferredProvider: 'auto',
-                temperature: 0.6,
-                groqModel: 'llama-3.3-70b-versatile',
-                geminiModel: 'gemini-1.5-flash',
+            try {
+                const { data: content } = await generateJson({
+                    prompt,
+                    role: 'user',
+                    preferredProvider: 'groq',
+                    temperature: 0.35,
+                    maxTokens: 3000,
+                    groqModel: 'llama-3.3-70b-versatile',
+                    geminiModel: 'gemini-1.5-flash',
+                });
+                
+                const questions = (content.questions || []).filter(q => {
+                    if (!q.question || !q.correct_answer || !Array.isArray(q.options) || q.options.length < 2) return false;
+                    if (!q.options.some(opt => opt === q.correct_answer)) {
+                        const match = q.options.find(opt => opt.toLowerCase().trim() === q.correct_answer.toLowerCase().trim());
+                        if (match) q.correct_answer = match; else return false;
+                    }
+                    return true;
+                });
+                
+                logger('INFO', `Generated ${questions.length} valid questions for ${category}`, { requested: count, category });
+                return questions;
+            } catch (error) {
+                logger('ERROR', `AI provider failed for ${category}`, {
+                    category,
+                    requested: count,
+                    error: error.message,
+                    stack: error.stack,
+                });
+                throw error;
+            }
+        };
+
+        const fetchQuestionsForCategoryRobust = async (category, count, promptDetails) => {
+            const collected = [];
+            const seen = new Set();
+            const maxChunkSize = highVolumeMode ? 6 : 4;
+            const plannedCalls = Math.max(1, Math.ceil(count / maxChunkSize));
+            const maxAttempts = plannedCalls + (highVolumeMode ? 1 : 2);
+            let attempts = 0;
+            let staleAttempts = 0;
+
+            logger('INFO', `Starting robust generation for category: ${category}`, {
+                target: count,
+                maxChunkSize,
+                maxAttempts,
             });
-            return (content.questions || []).filter(q => {
-                if (!q.question || !q.correct_answer || !Array.isArray(q.options) || q.options.length < 2) return false;
-                if (!q.options.some(opt => opt === q.correct_answer)) {
-                    const match = q.options.find(opt => opt.toLowerCase().trim() === q.correct_answer.toLowerCase().trim());
-                    if (match) q.correct_answer = match; else return false;
+
+            while (collected.length < count && attempts < maxAttempts) {
+                const needed = count - collected.length;
+                const chunkSize = Math.min(maxChunkSize, needed);
+
+                try {
+                    // Add exponential backoff delay between retries
+                    if (attempts > 0) {
+                        const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 5000);
+                        logger('INFO', `Retry delay for ${category}`, { attempt: attempts, delayMs: delay });
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
+
+                    logger('INFO', `Attempting generation for ${category}`, {
+                        attempt: attempts + 1,
+                        chunkSize,
+                        needed,
+                    });
+
+                    const chunk = await fetchQuestionsForCategory(category, chunkSize, promptDetails);
+                    let addedInThisAttempt = 0;
+
+                    for (const question of chunk) {
+                        const key = String(question.question || '').trim().toLowerCase();
+                        if (!key || seen.has(key)) continue;
+                        seen.add(key);
+                        collected.push(question);
+                        addedInThisAttempt += 1;
+                        if (collected.length >= count) break;
+                    }
+
+                    logger('INFO', `Generation chunk result for ${category}`, {
+                        chunkSize,
+                        generated: chunk.length,
+                        valid: addedInThisAttempt,
+                        collected: collected.length,
+                    });
+
+                    if (addedInThisAttempt === 0) {
+                        staleAttempts += 1;
+                    } else {
+                        staleAttempts = 0;
+                    }
+                } catch (chunkErr) {
+                    logger('ERROR', 'Category chunk generation failed', {
+                        category,
+                        attempt: attempts + 1,
+                        requested: chunkSize,
+                        error: chunkErr.message,
+                    });
+                    staleAttempts += 1;
                 }
-                return true;
+
+                if (staleAttempts >= 2) {
+                    logger('WARN', 'Stopping repeated stale attempts for category', {
+                        category,
+                        requested: count,
+                        generated: collected.length,
+                        staleAttempts,
+                    });
+                    break;
+                }
+
+                attempts += 1;
+            }
+
+            if (collected.length < count) {
+                logger('WARN', 'Generated fewer questions than requested for category', {
+                    category,
+                    requested: count,
+                    generated: collected.length,
+                    attempts,
+                });
+            }
+
+            logger('INFO', `Category generation complete: ${category}`, {
+                target: count,
+                generated: collected.length,
             });
+
+            return collected.slice(0, count);
         };
 
         const domainTopics = REFERENCE_DATASETS.getDomainTopics(jobRoleTarget);
 
-        const categories = [
+        const categoryTemplates = [
             {
                 name: 'DSA',
-                count: 5,
                 prompt: `Focus ONLY on Data Structures & Algorithms (DSA):
                 - Topic variety: Arrays, Strings, Linked Lists, Stacks, Queues, Trees, Graphs, Sorting, Searching, Dynamic Programming, Hashing.
                 - Include conceptual questions (e.g. "What is the time complexity of QuickSort?") and logic-application questions.
@@ -275,7 +396,6 @@ exports.generateInterview = async (req, res) => {
             },
             {
                 name: 'Logical Reasoning',
-                count: 5,
                 prompt: `Focus ONLY on Logical Reasoning:
                 - Topics: Number series, Blood relations, Syllogisms, Coding-decoding, Puzzles, Seating arrangements, Direction sense.
                 - Questions must test analytical thinking, NOT numerical math.
@@ -283,14 +403,12 @@ exports.generateInterview = async (req, res) => {
             },
             {
                 name: 'Verbal Ability',
-                count: 5,
                 prompt: `Focus ONLY on Verbal Ability & Aptitude:
                 - Topics: Reading comprehension, Vocabulary (synonyms, antonyms), Sentence correction, Fill in the blanks, Para jumbles, Analogy.
                 - Questions should test English language proficiency and verbal reasoning.`
             },
             {
                 name: 'Technical & Domain',
-                count: 5,
                 prompt: `The candidate applied for: "${jobRoleTarget}".
 
                 IMPORTANT: Your PRIMARY focus is the job role "${jobRoleTarget}". Ask questions specifically about:
@@ -305,21 +423,40 @@ exports.generateInterview = async (req, res) => {
                 AI-suggested role matches from resume:
                 ${suggestedRolesText}
 
-                Personalization rules you MUST follow for these 5 Technical & Domain questions:
-                - At least 3 questions must be tightly aligned to "${jobRoleTarget}" day-to-day skills.
-                - At least 2 questions must directly use technologies/skills present in resume skills, when relevant to the role.
-                - At least 1 question should probe a likely gap between resume focus and target-role requirements.
-                - Keep the set balanced: do not generate all 5 from one single tool/framework.
+                Personalization rules you MUST follow:
+                - Most questions must be tightly aligned to "${jobRoleTarget}" day-to-day skills.
+                - Include resume technologies/skills when relevant to the role.
+                - Include at least one question that probes a likely gap between resume focus and target-role requirements.
+                - Keep the set balanced: do not generate all questions from one single tool/framework.
 
-                All 5 questions MUST be directly relevant to the day-to-day work of a "${jobRoleTarget}".`
+                All questions in this category MUST be directly relevant to the day-to-day work of a "${jobRoleTarget}".`
             }
         ];
 
-        logger('INFO', `Generating 20-question interview for student ${studentId}`, { role: jobRoleTarget });
-        const results = await Promise.all(categories.map(c => fetchQuestionsForCategory(c.name, c.count, c.prompt)));
-        const allQuestions = results.flat();
+        const baseCount = Math.floor(totalQuestionCount / categoryTemplates.length);
+        const remainder = totalQuestionCount % categoryTemplates.length;
+        const remainderPriority = ['Technical & Domain', 'DSA', 'Logical Reasoning', 'Verbal Ability'];
 
-        if (allQuestions.length < 16) {
+        const remainderSet = new Set(remainderPriority.slice(0, remainder));
+        const categories = categoryTemplates.map((category) => ({
+            ...category,
+            count: baseCount + (remainderSet.has(category.name) ? 1 : 0),
+        }));
+
+        logger('INFO', `Generating ${totalQuestionCount}-question interview for student ${studentId}`, {
+            role: jobRoleTarget,
+            categorySplit: categories.map((c) => `${c.name}:${c.count}`).join(', '),
+            mode: highVolumeMode ? 'high-volume-sequential' : 'standard-parallel',
+        });
+        const results = [];
+        for (const category of categories) {
+            const generated = await fetchQuestionsForCategoryRobust(category.name, category.count, category.prompt);
+            results.push(generated);
+        }
+        const allQuestions = results.flat().slice(0, totalQuestionCount);
+
+        const minimumAcceptableCount = Math.max(16, Math.ceil(totalQuestionCount * 0.8));
+        if (allQuestions.length < minimumAcceptableCount) {
             throw new Error(`AI generated too few valid questions (${allQuestions.length}). Please try again.`);
         }
 
@@ -329,36 +466,57 @@ exports.generateInterview = async (req, res) => {
         );
         const interviewId = interviewResult.insertId;
 
+const questionStore = require('../utils/questionStore');
+
         // Pre-generate the coding round that will follow the MCQ round
         let codingId = null;
         try {
             const includeHard = difficulty === 'hard';
-            const levelA = includeHard ? 'Medium' : 'Easy';
-            const levelB = includeHard ? 'Hard'   : 'Medium';
-            const codingPrompt = `You are a senior software engineer. Generate 2 classic DSA algorithm problems.
-One should be ${levelA} difficulty, the other ${levelB}.
-Focus on core DSA: Arrays, Strings, Hashmaps, Two Pointers, Sliding Window, Recursion, DP, Trees, or Graphs.
-Do NOT relate the problem to a specific job role. These are general algorithmic problems like LeetCode.
+            let enrichedCodingQuestions = [];
 
-Return ONLY a JSON object:
-{
-  "questions": [
-    { "title": "...", "difficulty": "${levelA}", "description": "...", "examples": [{"input": "...", "output": "...", "explanation": "..."}], "constraints": "...", "hint": "..." },
-    { "title": "...", "difficulty": "${levelB}", "description": "...", "examples": [{"input": "...", "output": "...", "explanation": "..."}], "constraints": "...", "hint": "..." }
-  ]
-}`;
-            const { data: codingParsed } = await generateJson({
-                prompt: codingPrompt,
-                role: 'user',
-                preferredProvider: 'auto',
-                temperature: 0.7,
-                groqModel: 'llama-3.3-70b-versatile',
-                geminiModel: 'gemini-1.5-flash',
-            });
-            if (codingParsed.questions && codingParsed.questions.length >= 2) {
+            // Priority 1: Pick from Dataset
+            if (questionStore.hasQuestions()) {
+                const levelA = includeHard ? 'Medium' : 'Easy';
+                const levelB = includeHard ? 'Hard' : 'Medium';
+                const q1 = questionStore.getRandomQuestions(levelA, 1)[0];
+                const q2 = questionStore.getRandomQuestions(levelB, 1)[0];
+
+                if (q1 && q2) {
+                    enrichedCodingQuestions = [q1, q2].map((q, idx) => ({
+                        title: q.title,
+                        difficulty: q.difficulty,
+                        description: q.description,
+                        examples: q.examples,
+                        constraints: q.constraints.join?.('\n') || String(q.constraints),
+                        hint: "Think about the main idea first.",
+                        round_type: 'coding',
+                        sequence: idx + 1,
+                        provenance_mode: 'dataset-csv'
+                    }));
+                }
+            }
+
+            // Priority 2: AI Generation
+            if (enrichedCodingQuestions.length < 2) {
+                const levelA = includeHard ? 'Medium' : 'Easy';
+                const levelB = includeHard ? 'Hard'   : 'Medium';
+                const codingPrompt = `You are a senior software engineer. Generate 2 classic DSA algorithm problems. One ${levelA}, one ${levelB}. Return ONLY JSON.`;
+                const { data: codingParsed } = await generateJson({
+                    prompt: codingPrompt,
+                    role: 'user',
+                    preferredProvider: 'groq',
+                    temperature: 0.7,
+                    groqModel: 'llama-3.3-70b-versatile',
+                });
+                if (codingParsed.questions && codingParsed.questions.length >= 2) {
+                    enrichedCodingQuestions = codingParsed.questions.map(q => ({ ...q, provenance_mode: 'ai-generated' }));
+                }
+            }
+
+            if (enrichedCodingQuestions.length >= 2) {
                 const [codingResult] = await pool.query(
                     'INSERT INTO coding_interviews (student_id, include_hard, questions) VALUES (?, ?, ?)',
-                    [studentId, includeHard, JSON.stringify(codingParsed.questions)]
+                    [studentId, includeHard, JSON.stringify(enrichedCodingQuestions)]
                 );
                 codingId = codingResult.insertId;
                 await pool.query('UPDATE interviews SET coding_id = ? WHERE id = ?', [codingId, interviewId]);

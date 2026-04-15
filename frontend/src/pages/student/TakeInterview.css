@@ -4,6 +4,15 @@
     padding: 0 1.5rem;
 }
 
+.take-interview-container.fullscreen-active {
+    max-width: none;
+    width: 100vw;
+    min-height: 100vh;
+    margin: 0;
+    padding: 1.25rem;
+    box-sizing: border-box;
+}
+
 .interview-header {
     display: flex;
     justify-content: space-between;
@@ -26,6 +35,9 @@
 
 .progress-section {
     min-width: 250px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
 }
 
 .progress-text {
@@ -48,6 +60,43 @@
     height: 100%;
     background: linear-gradient(90deg, var(--accent), #8b5cf6);
     transition: width 0.3s ease;
+}
+
+.fullscreen-toggle-btn {
+    align-self: flex-end;
+    border: 1px solid var(--border);
+    background: var(--surface-low);
+    color: var(--text-secondary);
+    padding: 0.45rem 0.8rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.fullscreen-toggle-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(99, 102, 241, 0.08);
+}
+
+.fullscreen-toggle-btn.active {
+    border-color: var(--accent);
+    color: white;
+    background: var(--accent);
+}
+
+.warning-badge {
+    align-self: flex-end;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(245, 158, 11, 0.08);
+    color: #f59e0b;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
 }
 
 .interview-layout {
@@ -333,6 +382,20 @@
     }
     .progress-section {
         width: 100%;
+    }
+
+    .fullscreen-toggle-btn {
+        align-self: flex-start;
+    }
+
+    .warning-badge {
+        align-self: flex-start;
+    }
+}
+
+@media (max-width: 600px) {
+    .take-interview-container.fullscreen-active {
+        padding: 0.75rem;
     }
 }
 
