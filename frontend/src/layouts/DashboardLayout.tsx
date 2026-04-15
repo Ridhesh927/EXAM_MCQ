@@ -10,7 +10,8 @@ import {
   ShieldAlert,
   TrendingUp,
   Settings,
-  Sparkles
+  Sparkles,
+  Briefcase
 } from 'lucide-react';
 import { getUser, clearAuth } from '../utils/auth';
 import { apiFetch } from '../utils/api';
@@ -90,7 +91,8 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
     { icon: <BookOpen size={20} />, label: 'Manage Exams', path: '/teacher/exams' },
     { icon: <ShieldAlert size={20} />, label: 'Live Proctoring', path: '/teacher/proctor' },
     { icon: <TrendingUp size={20} />, label: 'View Results', path: '/teacher/results' },
-    { icon: <Users size={20} />, label: 'Students', path: '/teacher/students' }
+    { icon: <Users size={20} />, label: 'Students', path: '/teacher/students' },
+    { icon: <Briefcase size={20} />, label: 'Placement Cell', path: '/teacher/jobs' }
   ];
 
   if (isMainAdmin) {
@@ -102,6 +104,7 @@ const DashboardLayout = ({ children, userType }: DashboardLayoutProps) => {
     { icon: <BookOpen size={20} />, label: 'Available Exams', path: '/student/exams' },
     { icon: <TrendingUp size={20} />, label: 'My Results', path: '/student/results' },
     { icon: <Sparkles size={20} />, label: 'Interview Prep', path: '/student/interview-prep' },
+    { icon: <Briefcase size={20} />, label: 'Job Board', path: '/student/jobs' },
     { icon: <Settings size={20} />, label: 'Settings', path: '/student/settings' },
   ] : teacherNavItems;
 

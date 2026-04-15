@@ -8,13 +8,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Sidebar as SidebarIcon,
-  Flag
+  Flag,
+  Edit3
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import Peer from 'simple-peer';
 import * as faceapi from 'face-api.js';
 import { getToken, getUser } from '../../utils/auth';
 import Skeleton from '../../components/Skeleton';
+import RoughWorkPad from '../../components/RoughWorkPad';
 
 
 
@@ -26,6 +28,7 @@ const TakeExam = () => {
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [showRoughPad, setShowRoughPad] = useState(false);
   const [warningCount, setWarningCount] = useState(0);
   const warningCountRef = useRef(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -81,6 +84,19 @@ const TakeExam = () => {
         if (data.duration) {
           setTimeLeft(data.duration * 60);
         }
+
+        // LOAD AUTO-SAVED ANSWERS
+        const savedProgress = localStorage.getItem(`exam_progress_${id}`);
+        if (savedProgress) {
+            const { answers: savedAnswers, timeLeft: savedTime } = JSON.parse(savedProgress);
+            setAnswers(savedAnswers);
+            answersRef.current = savedAnswers;
+            if (savedTime && savedTime < data.duration * 60) {
+                setTimeLeft(savedTime);
+            }
+            console.log('[AUTO_RESUME] Restored progress from local storage.');
+        }
+
       } catch (err: any) {
         console.error('Failed to fetch exam:', err);
         setExamError(err.response?.data?.message || 'Failed to load exam. Please try again.');
@@ -93,8 +109,40 @@ const TakeExam = () => {
 
   // Handle selecting an answer
   const selectAnswer = (questionId: number, optionIndex: number) => {
-    setAnswers(prev => ({ ...prev, [questionId]: optionIndex }));
+    const newAnswers = { ...answers, [questionId]: optionIndex };
+    setAnswers(newAnswers);
+    answersRef.current = newAnswers;
+    
+    // Immediate local save
+    localStorage.setItem(`exam_progress_${id}`, JSON.stringify({
+        answers: newAnswers,
+        timeLeft,
+        lastSaved: Date.now()
+    }));
   };
+
+  // Periodic Backend Sync (every 30s)
+  useEffect(() => {
+    if (!sessionId || isExamTerminated || !hasStarted.current) return;
+
+    const syncProgress = async () => {
+        try {
+            const token = getToken('student');
+            await axios.post('/api/exams/session/response', {
+                examId: Number(id),
+                answers: answersRef.current
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            console.log('[AUTO_SYNC] Progress synced to server.');
+        } catch (err) {
+            console.error('[AUTO_SYNC] Failed to sync progress:', err);
+        }
+    };
+
+    const interval = setInterval(syncProgress, 30000);
+    return () => clearInterval(interval);
+  }, [sessionId, isExamTerminated]);
 
   const toggleMarkForReview = () => {
     if (questions.length === 0) return;
@@ -107,8 +155,17 @@ const TakeExam = () => {
     });
   };
 
-  // Helper because answers state might be stale in closures
-  const prevAnswers = () => answersRef.current;
+  const handleRoughWorkUpdate = (content: string) => {
+    if (socketRef.current) {
+        const user = getUser('student') || {};
+        socketRef.current.emit('rough-work-update', {
+            examId: Number(id),
+            userId: user.id || 0,
+            content
+        });
+    }
+  };
+
 
   const answeredCount = Object.keys(answers).length;
 
@@ -307,6 +364,13 @@ const TakeExam = () => {
       completionTime: (exam?.duration ? exam.duration * 60 : 3600) - timeLeft
     }, {
       headers: { Authorization: `Bearer ${token}` }
+    }).then((response) => {
+      if (response.data?.resultId && response.data?.recommendations) {
+        sessionStorage.setItem('latest_exam_recommendations', JSON.stringify({
+          resultId: response.data.resultId,
+          recommendations: response.data.recommendations
+        }));
+      }
     }).catch(err => console.error("Auto-submit failed", err));
   };
 
@@ -326,13 +390,22 @@ const TakeExam = () => {
 
     try {
       const token = getToken('student');
-      await axios.post('/api/exams/submit', {
+      const response = await axios.post('/api/exams/submit', {
         examId: id,
         answers,
         completionTime: (exam?.duration ? exam.duration * 60 : 3600) - timeLeft
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      
+      localStorage.removeItem(`exam_progress_${id}`);
+
+      if (response.data?.resultId && response.data?.recommendations) {
+        sessionStorage.setItem('latest_exam_recommendations', JSON.stringify({
+          resultId: response.data.resultId,
+          recommendations: response.data.recommendations
+        }));
+      }
       navigate('/student/results');
     } catch (err) {
       console.error("Submission failed", err);
@@ -378,7 +451,7 @@ const TakeExam = () => {
             examId: Number(id),
             userId: user.id || 0,
             role: 'student',
-            name: user.name || 'Student',
+            name: user.username || user.name || 'Student',
             sessionId: newSessionId
           });
 
@@ -396,6 +469,32 @@ const TakeExam = () => {
             } else if (localStream.current) {
               const peer = addPeer(data.signal, data.from, localStream.current);
               peersRef.current[data.from] = peer;
+            }
+          });
+
+          socket.on('warning-received', (payload: { message?: string }) => {
+            const nextWarningCount = warningCountRef.current + 1;
+            warningCountRef.current = nextWarningCount;
+            setWarningCount(nextWarningCount);
+            if (payload?.message) {
+              console.log('[TEACHER_WARNING]', payload.message);
+            }
+          });
+
+          socket.on('student-session-action', (payload: { actionType?: string, reason?: string }) => {
+            const actionType = payload?.actionType || 'terminate';
+            if (actionType === 'suspend' || actionType === 'terminate') {
+              terminateExam(payload?.reason || `Session ${actionType} by invigilator.`);
+            }
+          });
+
+          socket.on('voice-alert', (payload: { message: string }) => {
+            if ('speechSynthesis' in window && payload.message) {
+                const utterance = new SpeechSynthesisUtterance(payload.message);
+                utterance.rate = 0.9;
+                utterance.pitch = 1;
+                window.speechSynthesis.speak(utterance);
+                console.log('[VOICE_INTERVENTION]', payload.message);
             }
           });
 
@@ -455,6 +554,48 @@ const TakeExam = () => {
     }, 1000);
     return () => clearInterval(timer);
   }, [isFullscreen]);
+
+  // Periodic Snapshots logic (every 5 minutes)
+  useEffect(() => {
+    if (!sessionId || !hasStarted.current || isExamTerminated) return;
+
+    const takeSnapshot = async () => {
+      if (!videoRef.current || videoRef.current.readyState !== 4) return;
+
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(videoRef.current, 0, 0);
+          const snapshotData = canvas.toDataURL('image/webp', 0.5); // Compressed webp
+
+          const token = getToken('student');
+          await axios.post('/api/exams/session/snapshot', {
+            sessionId,
+            snapshotData
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          console.log('[SNAPSHOT_CAPTURED] Secret security frame stored.');
+        }
+      } catch (err) {
+        console.error('Failed to capture snapshot:', err);
+      }
+    };
+
+    // Initial snapshot after 1 minute of starting
+    const initialDelay = setTimeout(takeSnapshot, 60000);
+    
+    // Then every 5 minutes
+    const interval = setInterval(takeSnapshot, 300000);
+
+    return () => {
+      clearTimeout(initialDelay);
+      clearInterval(interval);
+    };
+  }, [sessionId, isExamTerminated]);
 
   // Sync video ref on mount or session start
   useEffect(() => {
@@ -977,15 +1118,32 @@ const TakeExam = () => {
           <h2 className="exam-title">{exam?.title || 'Assessment'}</h2>
         </div>
 
-        <div className={`exam-timer ${timeLeft < 300 ? 'warning' : ''}`}>
-          <Clock size={20} />
-          <span>{formatTime(timeLeft)}</span>
+        <div className="header-controls" style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+          <button 
+            className={`rough-pad-toggle ${showRoughPad ? 'active' : ''}`}
+            onClick={() => setShowRoughPad(!showRoughPad)}
+            title="Open Scratchpad"
+          >
+            <Edit3 size={20} />
+            <span>Digital Pad</span>
+          </button>
+
+          <div className={`exam-timer ${timeLeft < 300 ? 'warning' : ''}`}>
+            <Clock size={20} />
+            <span>{formatTime(timeLeft)}</span>
+          </div>
         </div>
 
         <button className="neo-btn-primary finish-btn" onClick={handleSubmit}>
           Finalize Submission
         </button>
       </header>
+
+      <RoughWorkPad 
+        isOpen={showRoughPad} 
+        onClose={() => setShowRoughPad(false)} 
+        onUpdate={handleRoughWorkUpdate} 
+      />
 
       <div className="exam-workspace">
         {/* Face Detection Lock Overlay */}
@@ -1370,6 +1528,33 @@ const TakeExam = () => {
           height: 100%;
           object-fit: cover;
         }
+        .rough-pad-toggle {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.6rem 1rem;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          color: var(--text-secondary);
+          font-size: 0.8125rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .rough-pad-toggle:hover {
+          background: rgba(139, 92, 246, 0.15);
+          border-color: rgba(139, 92, 246, 0.4);
+          color: #a78bfa;
+        }
+        .rough-pad-toggle.active {
+          background: rgba(139, 92, 246, 0.2);
+          border-color: #8b5cf6;
+          color: white;
+          box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+        }
+
         .proctor-status {
           position: absolute;
           bottom: 1rem;

@@ -26,6 +26,7 @@ const CreateExam = () => {
     const [step, setStep] = useState(1);
     const [isPublishing, setIsPublishing] = useState(false);
     const [publishSuccess, setPublishSuccess] = useState(false);
+    const [lastPublishedStatus, setLastPublishedStatus] = useState<'Draft' | 'Published'>('Published');
     const [showAIModal, setShowAIModal] = useState(false);
     const [popupAlert, setPopupAlert] = useState<{ title: string; message: string; type: 'warning' | 'error' } | null>(null);
     const [examData, setExamData] = useState({
@@ -99,11 +100,12 @@ const CreateExam = () => {
                 target_year: examData.target_year || null,
                 expires_at: examData.expires_at,
                 questions: examData.questions.map(q => ({
-                    question: q.text,
-                    options: q.options,
-                    correct_answer: q.correct,
-                    marks: 5,
-                    difficulty: 'Medium'
+                    question: q.text || 'New Question',
+                    options: Array.isArray(q.options) ? q.options : ['', '', '', ''],
+                    correct_answer: typeof q.correct === 'number' ? q.correct : 0,
+                    marks: q.marks || 5,
+                    difficulty: q.difficulty || 'Medium',
+                    topic: q.topic || examData.subject || 'General'
                 })),
                 status: status
             };
@@ -111,6 +113,7 @@ const CreateExam = () => {
             await axios.post('/api/exams/create', backendData, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+            setLastPublishedStatus(status as any);
             setPublishSuccess(true);
             setTimeout(() => {
                 navigate('/teacher/exams');
@@ -158,12 +161,14 @@ const CreateExam = () => {
         setExamData({
             ...examData,
             questions: [...examData.questions, ...newQuestions.map((q: any) => ({
-                text: q.question,
+                text: q.text || q.question || 'New Question',
                 type: 'MCQ',
-                options: q.options,
-                correct: q.correct_answer === q.options[0] ? 0 :
-                    q.correct_answer === q.options[1] ? 1 :
-                        q.correct_answer === q.options[2] ? 2 : 3
+                options: q.options || ['', '', '', ''],
+                correct: typeof q.correct === 'number' ? q.correct :
+                         typeof q.correct_answer === 'number' ? q.correct_answer :
+                         q.correct_answer === q.options?.[0] ? 0 :
+                         q.correct_answer === q.options?.[1] ? 1 :
+                         q.correct_answer === q.options?.[2] ? 2 : 3
             }))]
         });
     };
@@ -407,15 +412,16 @@ const CreateExam = () => {
 
                         <button
                             onClick={step === 3 ? () => handlePublish('Published') : nextStep}
-                            disabled={isPublishing || publishSuccess}
+                            disabled={isPublishing || publishSuccess || (step === 2 && examData.questions.length === 0)}
                             className={step === 3 ? 'nav-btn nav-btn-publish' : 'nav-btn nav-btn-continue'}
+                            title={step === 2 && examData.questions.length === 0 ? 'Add at least one question to continue' : ''}
                         >
                             {publishSuccess ? (
-                                <><CheckCircle size={18} /> {status === 'Draft' ? 'Saved!' : 'Published!'}</>
+                                <><CheckCircle size={18} /> {lastPublishedStatus === 'Draft' ? 'Saved!' : 'Published!'}</>
                             ) : isPublishing ? (
                                 <><Rocket size={18} className="publishing-icon" /> Processing...</>
                             ) : (
-                                <>{step === 3 ? <><Rocket size={18} /> Publish Assessment</> : <>Continue <ChevronRight size={18} /></>}</>
+                                <>{step === 3 ? <><Rocket size={18} /> Publish Assessment</> : <>Continue to Review <ChevronRight size={18} /></>}</>
                             )}
                         </button>
                     </footer>
@@ -511,16 +517,19 @@ const CreateExam = () => {
           .nav-btn {
             display: inline-flex;
             align-items: center;
-            gap: 0.625rem;
-            padding: 0.875rem 1.75rem;
-            border-radius: 8px;
-            font-size: 0.9375rem;
-            font-weight: 600;
+            justify-content: center;
+            gap: 0.75rem;
+            padding: 0.875rem 2.25rem;
+            min-width: 140px;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
             border: none;
+            letter-spacing: 0.02em;
           }
           
           .nav-btn::before {
@@ -580,9 +589,21 @@ const CreateExam = () => {
           /* Continue Button */
           .nav-btn-continue {
             background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-            border: 1px solid rgba(99, 102, 241, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+            animation: pulse-glow 3s infinite;
+          }
+          
+          @keyframes pulse-glow {
+            0% { box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); }
+            50% { box-shadow: 0 8px 25px rgba(139, 92, 246, 0.6); }
+            100% { box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); }
+          }
+          
+          .nav-btn-continue:hover:not(:disabled) {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 12px 30px rgba(99, 102, 241, 0.5);
           }
           
           .nav-btn-continue::before {
@@ -596,6 +617,21 @@ const CreateExam = () => {
           
           .nav-btn-continue:hover:not(:disabled) svg:last-child {
             transform: translateX(3px);
+          }
+          
+          .nav-btn-continue:disabled {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            box-shadow: none;
+            cursor: not-allowed;
+            opacity: 0.6;
+          }
+          
+          .nav-btn-publish {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+            color: white;
           }
           
           /* Publish Button */

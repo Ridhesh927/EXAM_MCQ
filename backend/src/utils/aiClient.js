@@ -3,9 +3,42 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.KILO_API_KEY;
 
-const groqClient = process.env.GROQ_API_KEY
-    ? new Groq({ apiKey: process.env.GROQ_API_KEY })
-    : null;
+// Multiple Groq Keys support
+const groqKeys = [
+    process.env.GROQ_API_KEY,
+    process.env.GROQ_API_KEY_2,
+    process.env.GROQ_API_KEY_3,
+    process.env.GROQ_API_KEY_4
+].filter(Boolean);
+
+let groqClients = groqKeys.map(key => new Groq({ apiKey: key }));
+let currentGroqIndex = 0;
+
+const TASK_KEY_MAP = {
+    'mcq_gen': 0,      // Key 1
+    'coding': 1,       // Key 2
+    'monitoring': 2,   // Key 3
+    'reporting': 0,    // Key 1 (shared)
+    'item_analysis': 1 // Key 2 (shared)
+};
+
+const getGroqClient = (taskType) => {
+    if (groqClients.length === 0) return null;
+    
+    // Try preferred key for task
+    if (taskType && TASK_KEY_MAP[taskType] !== undefined) {
+        const preferredIndex = TASK_KEY_MAP[taskType];
+        if (preferredIndex < groqClients.length) {
+            return { client: groqClients[preferredIndex], index: preferredIndex };
+        }
+    }
+
+    // Default to rotation
+    const index = currentGroqIndex;
+    const client = groqClients[index];
+    currentGroqIndex = (currentGroqIndex + 1) % groqClients.length;
+    return { client, index };
+};
 
 const geminiClient = geminiApiKey
     ? new GoogleGenerativeAI(geminiApiKey)
@@ -106,6 +139,7 @@ const parseJsonFromResponse = (content) => {
 };
 
 const callProvider = async (provider, {
+    taskType,
     prompt,
     role,
     jsonMode,
@@ -116,6 +150,7 @@ const callProvider = async (provider, {
 }) => {
     if (provider === 'groq') {
         return callGroq({
+            taskType,
             prompt,
             role,
             jsonMode,
@@ -138,37 +173,53 @@ const callProvider = async (provider, {
     throw new Error(`Unsupported provider: ${provider}`);
 };
 
-const callGroq = async ({ prompt, role, jsonMode, temperature, maxTokens, model }) => {
-    if (!groqClient) {
-        throw new Error('GROQ_API_KEY is not configured');
-    }
+const callGroq = async ({ taskType, prompt, role, jsonMode, temperature, maxTokens, model }) => {
+    let attempts = 0;
+    const maxAttempts = groqClients.length || 1;
+    let lastError = null;
 
-    console.log('[Groq] Calling API with model:', model || 'llama-3.3-70b-versatile');
-    
-    try {
-        const completion = await groqClient.chat.completions.create({
-            messages: [{ role: role || 'user', content: prompt }],
-            model: model || 'llama-3.3-70b-versatile',
-            temperature: typeof temperature === 'number' ? temperature : 0.7,
-            ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-            ...(maxTokens ? { max_tokens: maxTokens } : {}),
-        });
-
-        const content = completion.choices[0]?.message?.content;
-        if (!content) {
-            throw new Error('No response from Groq');
+    while (attempts < maxAttempts) {
+        const result = getGroqClient(taskType);
+        const client = result?.client;
+        const index = result?.index;
+        
+        if (!client) {
+            throw new Error('No GROQ_API_KEYS are configured');
         }
 
-        console.log('[Groq] Success - Response length:', content.length);
-        return content;
-    } catch (error) {
-        console.error('[Groq] API Error:', {
-            message: error.message,
-            status: error.status,
-            code: error.code,
-        });
-        throw error;
+        console.log(`[Groq] Attempt ${attempts + 1}/${maxAttempts} (Key #${index + 1}) for task: ${taskType || 'default'} using model:`, model || 'llama-3.3-70b-versatile');
+        
+        try {
+            const completion = await client.chat.completions.create({
+                messages: [{ role: role || 'user', content: prompt }],
+                model: model || 'llama-3.3-70b-versatile',
+                temperature: typeof temperature === 'number' ? temperature : 0.7,
+                ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+                ...(maxTokens ? { max_tokens: maxTokens } : {}),
+            });
+
+            const content = completion.choices[0]?.message?.content;
+            if (!content) {
+                throw new Error('No response from Groq');
+            }
+
+            console.log('[Groq] Success - Response length:', content.length);
+            return content;
+        } catch (error) {
+            lastError = error;
+            console.error(`[Groq] Key failed (Attempt ${attempts + 1}):`, error.message);
+            
+            // If it's a rate limit or auth error, try another key immediately
+            if (error.status === 429 || error.status === 401) {
+                attempts++;
+                continue;
+            }
+            // For other errors, maybe it's the prompt or model, but let's try one more key just in case
+            attempts++;
+        }
     }
+
+    throw lastError || new Error('Groq calls failed after all key rotations');
 };
 
 const callGemini = async ({ prompt, jsonMode, temperature, maxTokens, model }) => {

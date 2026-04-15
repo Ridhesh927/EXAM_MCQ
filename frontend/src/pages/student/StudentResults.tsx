@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Clock, CheckCircle, Loader2, BarChart3 } from 'lucide-react';
+import { Trophy, Clock, CheckCircle, Loader2, BarChart3, Download } from 'lucide-react';
+import jsPDF from 'jspdf';
+import QRCode from 'qrcode';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { getToken } from '../../utils/auth';
 
@@ -12,6 +14,80 @@ const StudentResults: React.FC<StudentResultsProps> = ({ standalone = true }) =>
     const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+
+    const generateCertificate = async (result: any) => {
+        const doc = new jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a4'
+        });
+
+        const width = doc.internal.pageSize.getWidth();
+        const height = doc.internal.pageSize.getHeight();
+
+        // Background Color/Border
+        doc.setFillColor(242, 242, 245);
+        doc.rect(0, 0, width, height, 'F');
+        doc.setDrawColor(167, 139, 250);
+        doc.setLineWidth(2);
+        doc.rect(5, 5, width - 10, height - 10, 'S');
+
+        // Header
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(28);
+        doc.setTextColor(139, 92, 246);
+        doc.text('CERTIFICATE OF EXCELLENCE', width / 2, 40, { align: 'center' });
+
+        doc.setFontSize(16);
+        doc.setTextColor(113, 113, 122);
+        doc.setFont('helvetica', 'normal');
+        doc.text('This is to certify that', width / 2, 60, { align: 'center' });
+
+        // Name
+        doc.setFontSize(32);
+        doc.setTextColor(9, 9, 11);
+        doc.setFont('helvetica', 'bold');
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const studentName = user.username || 'Respected Student';
+        doc.text(studentName.toUpperCase(), width / 2, 85, { align: 'center' });
+
+        // Body
+        doc.setFontSize(14);
+        doc.setTextColor(113, 113, 122);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`has successfully completed the examination for`, width / 2, 105, { align: 'center' });
+
+        doc.setFontSize(18);
+        doc.setTextColor(139, 92, 246);
+        doc.setFont('helvetica', 'bold');
+        doc.text(result.exam_title, width / 2, 118, { align: 'center' });
+
+        // Stats
+        doc.setFontSize(14);
+        doc.setTextColor(82, 82, 91);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Score: ${result.score} / ${result.total_marks} (${Math.round((result.score / result.total_marks) * 100)}%)`, width / 2, 135, { align: 'center' });
+        doc.text(`Date: ${new Date(result.submitted_at).toLocaleDateString()}`, width / 2, 145, { align: 'center' });
+
+        // QR Code for Verification
+        const qrData = `VERIFY ID: ${result.id} | STUDENT: ${studentName} | EXAM: ${result.exam_title}`;
+        const qrCodeUrl = await QRCode.toDataURL(qrData);
+        doc.addImage(qrCodeUrl, 'PNG', width - 40, height - 40, 25, 25);
+        
+        doc.setFontSize(8);
+        doc.setTextColor(161, 161, 170);
+        doc.text('Scan to Verify', width - 27.5, height - 12, { align: 'center' });
+
+        // Signatures
+        doc.setDrawColor(161, 161, 170);
+        doc.setLineWidth(0.5);
+        doc.line(40, height - 35, 90, height - 35);
+        doc.setFontSize(11);
+        doc.text('Authorized Signatory', 65, height - 28, { align: 'center' });
+
+        // Save
+        doc.save(`${studentName}_Certificate_${result.exam_title.replace(/\s+/g, '_')}.pdf`);
+    };
 
     useEffect(() => {
         const fetchResults = async () => {
@@ -50,9 +126,9 @@ const StudentResults: React.FC<StudentResultsProps> = ({ standalone = true }) =>
 
     const totalExams = results.length;
     const avgScore = totalExams > 0
-        ? Math.round(results.reduce((acc, r) => acc + (r.score / r.total_marks) * 100, 0) / totalExams)
+        ? Math.round(results.reduce((acc: number, r: any) => acc + (r.score / r.total_marks) * 100, 0) / totalExams)
         : 0;
-    const passCount = results.filter(r => r.score >= r.passing_marks).length;
+    const passCount = results.filter((r: any) => r.score >= r.passing_marks).length;
 
     const content = (
         <div className="results-page">
@@ -108,6 +184,10 @@ const StudentResults: React.FC<StudentResultsProps> = ({ standalone = true }) =>
                     {results.map((result, i) => {
                         const percentage = Math.round((result.score / result.total_marks) * 100);
                         const status = getStatus(result.score, result.total_marks, result.passing_marks);
+                        const weakTopics = Array.isArray(result.weak_topics) ? result.weak_topics : [];
+                        const practiceQuiz = Array.isArray(result.practice_quiz) ? result.practice_quiz : [];
+                        const classRemediation = Array.isArray(result.class_remediation) ? result.class_remediation : [];
+                        const hasAdaptiveInsights = weakTopics.length > 0 || practiceQuiz.length > 0 || classRemediation.length > 0;
 
                         return (
                             <motion.div
@@ -117,15 +197,20 @@ const StudentResults: React.FC<StudentResultsProps> = ({ standalone = true }) =>
                                 transition={{ delay: i * 0.08 }}
                                 className="neo-card result-card"
                             >
-                                <div className="result-header">
-                                    <div className="result-exam-info">
-                                        <span className="exam-subject-tag">{result.exam_subject}</span>
-                                        <h3>{result.exam_title}</h3>
+                                    <div className="result-header">
+                                        <div className="result-exam-info">
+                                            <span className="exam-subject-tag">{result.exam_subject}</span>
+                                            <h3>{result.exam_title}</h3>
+                                            {result.score >= result.passing_marks && (
+                                                <button className="cert-btn" onClick={() => generateCertificate(result)}>
+                                                    <Download size={14} /> Download Certificate
+                                                </button>
+                                            )}
+                                        </div>
+                                        <span className="status-badge" style={{ color: status.color, background: status.bg }}>
+                                            {status.label}
+                                        </span>
                                     </div>
-                                    <span className="status-badge" style={{ color: status.color, background: status.bg }}>
-                                        {status.label}
-                                    </span>
-                                </div>
 
                                 <div className="result-stats">
                                     <div className="result-stat">
@@ -164,6 +249,61 @@ const StudentResults: React.FC<StudentResultsProps> = ({ standalone = true }) =>
                                     </div>
                                 </div>
 
+                                {hasAdaptiveInsights && (
+                                    <div className="adaptive-panel">
+                                        <h4>Adaptive Learning Recommendations</h4>
+                                        <div className="adaptive-grid">
+                                            <div className="adaptive-block">
+                                                <h5>Weak Topics</h5>
+                                                {weakTopics.length === 0 ? (
+                                                    <p>No weak topics identified for this attempt.</p>
+                                                ) : (
+                                                    <ul>
+                                                        {weakTopics.slice(0, 3).map((topic: any, idx: number) => (
+                                                            <li key={`${result.id}-weak-${idx}`}>
+                                                                <span>{topic.topic}</span>
+                                                                <small>{Math.round(Number(topic.accuracy || 0))}% accuracy</small>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+
+                                            <div className="adaptive-block">
+                                                <h5>Personalized Practice Quiz</h5>
+                                                {practiceQuiz.length === 0 ? (
+                                                    <p>No additional practice set generated.</p>
+                                                ) : (
+                                                    <ul>
+                                                        {practiceQuiz.slice(0, 3).map((question: any, idx: number) => (
+                                                            <li key={`${result.id}-quiz-${idx}`}>
+                                                                <span>{question.topic}</span>
+                                                                <small>{question.question}</small>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+
+                                            <div className="adaptive-block">
+                                                <h5>Class Remediation Focus</h5>
+                                                {classRemediation.length === 0 ? (
+                                                    <p>No class-level remediation recommendations available.</p>
+                                                ) : (
+                                                    <ul>
+                                                        {classRemediation.slice(0, 2).map((item: any, idx: number) => (
+                                                            <li key={`${result.id}-remediation-${idx}`}>
+                                                                <span>{item.topic}</span>
+                                                                <small>{item.recommendation}</small>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="result-footer">
                                     <span className="submitted-at">
                                         Submitted: {new Date(result.submitted_at).toLocaleDateString('en-IN', {
@@ -194,6 +334,26 @@ const StudentResults: React.FC<StudentResultsProps> = ({ standalone = true }) =>
                 .result-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); }
                 .result-header { display: flex; justify-content: space-between; align-items: flex-start; }
                 .exam-subject-tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; color: var(--accent); padding: 0.2rem 0.5rem; border: 1px solid var(--accent); border-radius: 3px; display: inline-block; margin-bottom: 0.5rem; }
+                .cert-btn {
+                    margin-top: 0.75rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    background: rgba(139, 92, 246, 0.15);
+                    color: #a78bfa;
+                    border: 1px solid rgba(139, 92, 246, 0.3);
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: 0.2s;
+                }
+                .cert-btn:hover {
+                    background: rgba(139, 92, 246, 0.25);
+                    border-color: #a78bfa;
+                    color: #fff;
+                }
                 .result-exam-info h3 { font-size: 1.375rem; margin: 0; }
                 .status-badge { padding: 0.375rem 1rem; border-radius: 20px; font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.03em; flex-shrink: 0; }
                 .result-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
@@ -202,11 +362,24 @@ const StudentResults: React.FC<StudentResultsProps> = ({ standalone = true }) =>
                 .score-progress { width: 100%; }
                 .score-bar-bg { width: 100%; height: 8px; background: var(--surface-high); border-radius: 4px; overflow: hidden; }
                 .score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; }
+                .adaptive-panel { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 0.85rem; }
+                .adaptive-panel h4 { margin: 0; font-size: 0.95rem; color: var(--text-primary); }
+                .adaptive-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; }
+                .adaptive-block { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; background: var(--surface-low); }
+                .adaptive-block h5 { margin: 0 0 0.55rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+                .adaptive-block p { margin: 0; color: var(--text-muted); font-size: 0.78rem; line-height: 1.35; }
+                .adaptive-block ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+                .adaptive-block li { display: flex; flex-direction: column; gap: 0.2rem; }
+                .adaptive-block li span { font-size: 0.83rem; font-weight: 600; color: var(--text-primary); }
+                .adaptive-block li small { color: var(--text-muted); font-size: 0.74rem; line-height: 1.3; }
                 .result-footer { display: flex; justify-content: space-between; font-size: 0.8125rem; color: var(--text-muted); }
                 .loading-state, .error-state { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 4rem; color: var(--text-muted); }
                 .error-state { color: #ef4444; }
                 .empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 4rem 2rem; color: var(--text-muted); }
                 .empty-state h3 { font-size: 1.5rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+                @media (max-width: 980px) {
+                    .adaptive-grid { grid-template-columns: 1fr; }
+                }
             `}</style>
         </div>
     );

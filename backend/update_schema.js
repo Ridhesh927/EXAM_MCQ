@@ -21,6 +21,13 @@ async function update() {
             console.log("Schema added scheduled_start column");
         }
 
+        // Ensure expires_at exists
+        const hasExpiresAt = desc.some(c => c.Field === 'expires_at');
+        if (!hasExpiresAt) {
+            await pool.query("ALTER TABLE exams ADD COLUMN expires_at DATETIME NOT NULL");
+            console.log("Schema added expires_at column to exams");
+        }
+
         // Ensure target_department exists
         const hasTargetDept = desc.some(c => c.Field === 'target_department');
         if (!hasTargetDept) {
@@ -144,6 +151,39 @@ async function update() {
             )
         `);
         console.log("Schema ensured interview_questions table exists");
+
+        // --- NEW JOB BOARD TABLES ---
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                company VARCHAR(255) DEFAULT 'Institutional Placement Cell',
+                location VARCHAR(255) DEFAULT 'Remote / On-site',
+                job_type ENUM('Full-time', 'Internship', 'Contract', 'Part-time') DEFAULT 'Full-time',
+                description TEXT NOT NULL,
+                requirements TEXT,
+                salary_range VARCHAR(100),
+                status ENUM('Open', 'Closed') DEFAULT 'Open',
+                created_by INT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES teachers (id) ON DELETE SET NULL
+            )
+        `);
+        console.log("Schema ensured jobs table exists");
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS job_applications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                job_id INT,
+                student_id INT,
+                status ENUM('Applied', 'Shortlisted', 'Interviewing', 'Selected', 'Rejected') DEFAULT 'Applied',
+                ai_match_score INT DEFAULT 0,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE,
+                FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+            )
+        `);
+        console.log("Schema ensured job_applications table exists");
 
         console.log("\nAll schema updates completed successfully!");
         process.exit(0);

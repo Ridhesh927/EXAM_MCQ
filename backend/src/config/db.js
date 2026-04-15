@@ -17,6 +17,29 @@ const pool = mysql.createPool({
     connectionLimit: Number(process.env.DB_POOL_SIZE || 20),
     queueLimit: 0
 });
+const DB_NAME = process.env.DB_NAME || 'exam_portal_v2';
+
+const hasColumn = async (connection, tableName, columnName) => {
+    const [rows] = await connection.query(
+        `SELECT 1
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = ?
+           AND TABLE_NAME = ?
+           AND COLUMN_NAME = ?
+         LIMIT 1`,
+        [DB_NAME, tableName, columnName]
+    );
+    return rows.length > 0;
+};
+
+const ensureColumn = async (connection, tableName, columnName, definitionSql) => {
+    const exists = await hasColumn(connection, tableName, columnName);
+    if (!exists) {
+        await connection.query(
+            `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definitionSql}`
+        );
+    }
+};
 
 const ensureSecurityColumns = async (connection) => {
     const [rows] = await connection.query(
@@ -26,7 +49,7 @@ const ensureSecurityColumns = async (connection) => {
            AND TABLE_NAME = 'teachers'
            AND COLUMN_NAME = 'is_main_admin'
          LIMIT 1`,
-        [process.env.DB_NAME || 'exam_portal_v2']
+        [DB_NAME]
     );
 
     if (!rows.length) {
@@ -34,6 +57,57 @@ const ensureSecurityColumns = async (connection) => {
             'ALTER TABLE teachers ADD COLUMN is_main_admin BOOLEAN DEFAULT FALSE'
         );
     }
+};
+
+const ensureExamEnhancementSchema = async (connection) => {
+    await ensureColumn(connection, 'exam_questions', 'topic', "VARCHAR(255) DEFAULT 'General'");
+    await ensureColumn(connection, 'exam_results', 'total_marks', 'INT NOT NULL DEFAULT 0');
+    await ensureColumn(connection, 'exam_sessions', 'is_suspended', 'BOOLEAN DEFAULT FALSE');
+
+    await connection.query(
+        `CREATE TABLE IF NOT EXISTS exam_session_actions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            session_id INT NOT NULL,
+            exam_id INT NOT NULL,
+            student_id INT NOT NULL,
+            action_type VARCHAR(100) NOT NULL,
+            reason TEXT NULL,
+            actioned_by INT NULL,
+            actioned_by_role ENUM('teacher', 'student', 'system') DEFAULT 'system',
+            metadata JSON DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_exam_session_actions_session (session_id),
+            INDEX idx_exam_session_actions_exam_student (exam_id, student_id),
+            FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE,
+            FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+            FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+        )`
+    );
+
+    await connection.query(
+        `CREATE TABLE IF NOT EXISTS exam_learning_recommendations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            result_id INT NOT NULL UNIQUE,
+            exam_id INT NOT NULL,
+            student_id INT NOT NULL,
+            weak_topics JSON DEFAULT NULL,
+            practice_quiz JSON DEFAULT NULL,
+            class_remediation JSON DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_learning_exam_student (exam_id, student_id),
+            FOREIGN KEY (result_id) REFERENCES exam_results (id) ON DELETE CASCADE,
+            FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+            FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+        )`
+    );
+
+    await connection.query(
+        `UPDATE exam_results er
+         JOIN exams e ON er.exam_id = e.id
+         SET er.total_marks = e.total_marks
+         WHERE COALESCE(er.total_marks, 0) = 0`
+    );
 };
 
 const ensureMainAdminAccount = async (connection) => {
@@ -80,6 +154,7 @@ const initDB = async () => {
         }
 
         await ensureSecurityColumns(connection);
+        await ensureExamEnhancementSchema(connection);
         await ensureMainAdminAccount(connection);
 
         console.log('Database initialized successfully.');

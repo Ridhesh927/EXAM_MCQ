@@ -9,6 +9,9 @@ const TeacherDashboard = () => {
     const [stats, setStats] = useState({
         totalExams: 0,
         activeSessions: 0,
+        completedToday: 0,
+        pendingReviews: 0,
+        completionRate: 0,
         recentResults: []
     });
     const [loading, setLoading] = useState(true);
@@ -46,8 +49,8 @@ const TeacherDashboard = () => {
                         {[
                             { label: 'Total Exams', value: stats.totalExams, icon: <FileText />, color: 'var(--accent)' },
                             { label: 'Active Sessions', value: stats.activeSessions, icon: <Users />, color: 'var(--accent)' },
-                            { label: 'Completed Today', value: '-', icon: <CheckCircle2 />, color: 'var(--success)' },
-                            { label: 'Pending Reviews', value: '-', icon: <MoreHorizontal />, color: 'var(--accent)' },
+                            { label: 'Completed Today', value: stats.completedToday, icon: <CheckCircle2 />, color: 'var(--success)' },
+                            { label: 'Pending Reviews', value: stats.pendingReviews, icon: <MoreHorizontal />, color: 'var(--accent)' },
                         ].map((stat, i) => (
                             <motion.div
                                 key={stat.label}
@@ -60,6 +63,9 @@ const TeacherDashboard = () => {
                                 <div className="stat-content">
                                     <span className="stat-label">{stat.label}</span>
                                     <span className="stat-value">{stat.value}</span>
+                                    {stat.label === 'Completed Today' && (
+                                        <span className="stat-subtext">{stats.completionRate}% session completion</span>
+                                    )}
                                 </div>
                             </motion.div>
                         ))}
@@ -76,6 +82,7 @@ const TeacherDashboard = () => {
           .stat-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--surface-low); border-radius: var(--radius-sm); }
           .stat-label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 0.25rem; }
           .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
+          .stat-subtext { display: block; margin-top: 0.35rem; font-size: 0.75rem; color: var(--text-muted); }
         `}</style>
             </div>
         </DashboardLayout>

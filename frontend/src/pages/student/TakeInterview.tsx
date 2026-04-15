@@ -148,7 +148,7 @@ const TakeInterview = () => {
         }
     };
 
-    const handleViolation = (type: string) => {
+    const handleViolation = (_type: string) => {
         if (isTerminatedRef.current) return;
         const now = Date.now();
         if (now - lastViolationTimeRef.current < 2500) return;

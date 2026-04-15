@@ -1,0 +1,48 @@
+# FOR BACKEND:
+# Navigate to ./backend and run:
+# npm install
+
+# Dependencies:
+@google/generative-ai
+bcryptjs
+cookie-parser
+cors
+csv-parse
+dotenv
+express
+express-rate-limit
+groq-sdk
+helmet
+jsonwebtoken
+mammoth
+multer
+mysql2
+node-cron
+pdf-parse
+socket.io
+tesseract.js
+xlsx
+
+# FOR FRONTEND:
+# Navigate to ./frontend and run:
+# npm install
+
+# Dependencies:
+@monaco-editor/react
+axios
+face-api.js
+framer-motion
+html2canvas
+jspdf
+lucide-react
+ogl
+qrcode
+react
+react-dom
+react-router-dom
+recharts
+simple-peer
+socket.io-client
+three
+xlsx
+zod

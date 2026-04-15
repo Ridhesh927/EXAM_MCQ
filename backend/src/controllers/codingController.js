@@ -9,6 +9,7 @@ const { getCompanyProfile, getSupportedCompanies } = require('../utils/companyQu
 // ─────────────────────────────────────────────
 const callAI = async (prompt) => {
     const { data } = await generateJson({
+        taskType: 'coding',
         prompt,
         role: 'user',
         preferredProvider: 'auto',
@@ -21,6 +22,7 @@ const callAI = async (prompt) => {
 
 const callAIText = async (prompt) => {
     const { content } = await generateText({
+        taskType: 'coding',
         prompt,
         role: 'user',
         preferredProvider: 'auto',

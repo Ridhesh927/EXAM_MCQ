@@ -1,12 +1,430 @@
 const { pool } = require('../config/db');
 const xlsx = require('xlsx');
 const logger = require('../utils/logger');
+const { generateText } = require('../utils/aiClient');
 
 const normalizeDifficulty = (value) => {
     const v = String(value || '').trim().toLowerCase();
     if (v === 'easy') return 'Easy';
     if (v === 'high' || v === 'hard') return 'High';
     return 'Medium';
+};
+
+const normalizeTopic = (value, fallback = 'General') => {
+    const topic = String(value ?? '').trim();
+    return topic || fallback;
+};
+
+const safeJsonParse = (value, fallback = null) => {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value !== 'string') return value;
+    try {
+        return JSON.parse(value);
+    } catch (error) {
+        return fallback;
+    }
+};
+
+const buildWeakTopicInsights = (rows = []) =>
+    rows
+        .map(row => {
+            const attempts = Number(row.attempts || 0);
+            const correctAttempts = Number(row.correct_attempts || 0);
+            const incorrectAttempts = Math.max(0, attempts - correctAttempts);
+            const accuracy = attempts > 0
+                ? Number(((correctAttempts / attempts) * 100).toFixed(2))
+                : 0;
+            const weaknessScore = Number((100 - accuracy).toFixed(2));
+            return {
+                topic: normalizeTopic(row.topic, 'General'),
+                attempts,
+                correctAttempts,
+                incorrectAttempts,
+                accuracy,
+                weaknessScore
+            };
+        })
+        .sort((a, b) => {
+            if (a.weaknessScore === b.weaknessScore) return b.attempts - a.attempts;
+            return b.weaknessScore - a.weaknessScore;
+        });
+
+const buildClassRemediationSuggestions = (topicWeakness = []) =>
+    topicWeakness
+        .filter(topic => topic.attempts > 0)
+        .slice(0, 5)
+        .map(topic => {
+            const remediationPriority = topic.accuracy < 50
+                ? 'high'
+                : topic.accuracy < 70
+                    ? 'medium'
+                    : 'low';
+
+            let recommendation = `Run a focused revision module on ${topic.topic}.`;
+            if (topic.accuracy < 50) {
+                recommendation = `Prioritize a re-teach session for ${topic.topic}, followed by a graded practice set.`;
+            } else if (topic.accuracy < 70) {
+                recommendation = `Introduce scaffolded practice on ${topic.topic} with concept recap and worked examples.`;
+            }
+
+            return {
+                topic: topic.topic,
+                attempts: topic.attempts,
+                accuracy: topic.accuracy,
+                priority: remediationPriority,
+                recommendation
+            };
+        });
+
+const escapeCsvCell = (value) => {
+    const raw = String(value ?? '');
+    if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+        return `"${raw.replace(/"/g, '""')}"`;
+    }
+    return raw;
+};
+
+const escapePdfText = (value) =>
+    String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)');
+
+const wrapPdfText = (text, maxChars = 90) => {
+    const words = String(text ?? '').split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [''];
+
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+        if (candidate.length > maxChars) {
+            if (current) lines.push(current);
+            current = word;
+        } else {
+            current = candidate;
+        }
+    }
+
+    if (current) lines.push(current);
+    return lines;
+};
+
+const buildSimplePdfBuffer = (rawLines = []) => {
+    const lines = rawLines.flatMap(line => wrapPdfText(line));
+    const pageHeight = 792;
+    const lineHeight = 14;
+    const topMargin = 40;
+    const bottomMargin = 40;
+    let y = pageHeight - topMargin;
+
+    const contentParts = [
+        'BT',
+        '/F1 10 Tf',
+        `40 ${y} Td`
+    ];
+
+    lines.forEach((line, index) => {
+        const safeLine = escapePdfText(line);
+        if (index === 0) {
+            contentParts.push(`(${safeLine}) Tj`);
+            return;
+        }
+
+        y -= lineHeight;
+        if (y <= bottomMargin) {
+            return;
+        }
+        contentParts.push(`0 -${lineHeight} Td`);
+        contentParts.push(`(${safeLine}) Tj`);
+    });
+
+    contentParts.push('ET');
+    const stream = `${contentParts.join('\n')}\n`;
+
+    const objects = [
+        '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+        '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+        '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
+        `4 0 obj\n<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}endstream\nendobj\n`,
+        '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n'
+    ];
+
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    for (const object of objects) {
+        offsets.push(Buffer.byteLength(pdf, 'utf8'));
+        pdf += object;
+    }
+
+    const xrefStart = Buffer.byteLength(pdf, 'utf8');
+    pdf += `xref\n0 ${objects.length + 1}\n`;
+    pdf += '0000000000 65535 f \n';
+    for (let i = 1; i <= objects.length; i++) {
+        const offset = String(offsets[i]).padStart(10, '0');
+        pdf += `${offset} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+    return Buffer.from(pdf, 'utf8');
+};
+
+const getTeacherScope = (user) => ({
+    sql: user.isMainAdmin ? '' : ' AND e.teacher_id = ?',
+    params: user.isMainAdmin ? [] : [user.id]
+});
+
+const getSessionTeacherScope = (user) => ({
+    sql: user.isMainAdmin ? '' : ' AND e.teacher_id = ?',
+    params: user.isMainAdmin ? [] : [user.id]
+});
+
+const recordProctorAction = async ({
+    sessionId,
+    examId,
+    studentId,
+    actionType,
+    reason,
+    actionedBy,
+    actionedByRole = 'teacher',
+    metadata = null
+}) => {
+    await pool.query(
+        `INSERT INTO exam_session_actions (
+            session_id,
+            exam_id,
+            student_id,
+            action_type,
+            reason,
+            actioned_by,
+            actioned_by_role,
+            metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            sessionId,
+            examId,
+            studentId,
+            actionType,
+            reason || null,
+            actionedBy || null,
+            actionedByRole,
+            metadata ? JSON.stringify(metadata) : null
+        ]
+    );
+};
+
+const getDefaultProctorReason = (actionType) => {
+    const defaults = {
+        warn: 'Suspicious behavior observed during live proctoring.',
+        suspend: 'Session suspended pending manual review.',
+        terminate: 'Session terminated by invigilator due to repeated violations.'
+    };
+    return defaults[actionType] || 'Invigilation action applied.';
+};
+
+const emitToStudentSocket = (io, examId, studentId, eventName, payload) => {
+    if (!io) return;
+    const sockets = io.sockets.adapter.rooms.get(`exam-${examId}`);
+    if (!sockets) return;
+
+    for (const socketId of sockets) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket && socket.userId === Number(studentId) && socket.role === 'student') {
+            io.to(socketId).emit(eventName, payload);
+        }
+    }
+};
+
+const mapWarningTimelineEntry = (warning) => ({
+    id: `warning-${warning.id}`,
+    sessionId: Number(warning.session_id),
+    eventType: 'warning',
+    actionType: 'warning',
+    reason: warning.message || warning.warning_type || 'Violation detected',
+    actorId: null,
+    actorRole: 'system',
+    actorName: 'Proctoring Engine',
+    metadata: {
+        warningType: warning.warning_type,
+        snapshotData: warning.snapshot_data
+    },
+    occurredAt: warning.timestamp
+});
+
+const mapActionTimelineEntry = (action) => {
+    const actorName = action.actioned_by_role === 'teacher'
+        ? (action.teacher_name || `Teacher #${action.actioned_by}`)
+        : action.actioned_by_role === 'student'
+            ? `Student #${action.actioned_by}`
+            : 'System';
+
+    return {
+        id: `action-${action.id}`,
+        sessionId: Number(action.session_id),
+        eventType: 'action',
+        actionType: action.action_type,
+        reason: action.reason || '',
+        actorId: action.actioned_by,
+        actorRole: action.actioned_by_role || 'system',
+        actorName,
+        metadata: safeJsonParse(action.metadata, {}),
+        occurredAt: action.created_at
+    };
+};
+
+const getAuthorizedExam = async (examId, user) => {
+    const { sql: teacherScopeSql, params: teacherScopeParams } = getTeacherScope(user);
+    const [rows] = await pool.query(
+        `SELECT e.id, e.title
+         FROM exams e
+         WHERE e.id = ? AND e.is_deleted = FALSE${teacherScopeSql}
+         LIMIT 1`,
+        [examId, ...teacherScopeParams]
+    );
+    return rows[0] || null;
+};
+
+const getAuthorizedSession = async (sessionId, user) => {
+    const { sql: teacherScopeSql, params: teacherScopeParams } = getSessionTeacherScope(user);
+    const [rows] = await pool.query(
+        `SELECT
+            es.*,
+            s.username as student_name,
+            s.prn_number,
+            e.title as exam_title
+         FROM exam_sessions es
+         JOIN exams e ON es.exam_id = e.id
+         JOIN students s ON es.student_id = s.id
+         WHERE es.id = ?${teacherScopeSql}
+         LIMIT 1`,
+        [sessionId, ...teacherScopeParams]
+    );
+    return rows[0] || null;
+};
+
+const buildAdaptiveRecommendations = async ({ examId, studentId, resultId, questionPerformance = [] }) => {
+    const topicRows = [];
+    const topicMap = new Map();
+
+    questionPerformance.forEach((question) => {
+        const topic = normalizeTopic(question.topic, 'General');
+        if (!topicMap.has(topic)) {
+            topicMap.set(topic, {
+                topic,
+                attempts: 0,
+                correct_attempts: 0
+            });
+        }
+        const aggregate = topicMap.get(topic);
+        aggregate.attempts += 1;
+        if (question.isCorrect) {
+            aggregate.correct_attempts += 1;
+        }
+    });
+
+    for (const value of topicMap.values()) {
+        topicRows.push(value);
+    }
+
+    const weakTopics = buildWeakTopicInsights(topicRows);
+    const weakTopicSet = new Set(weakTopics.slice(0, 3).map(topic => topic.topic));
+
+    const [practiceBankRows] = await pool.query(
+        `SELECT
+            eq.id,
+            eq.question,
+            eq.options,
+            eq.difficulty,
+            COALESCE(NULLIF(eq.topic, ''), e.subject, 'General') as topic
+         FROM exam_questions eq
+         JOIN exams e ON eq.exam_id = e.id
+         WHERE e.subject = (SELECT subject FROM exams WHERE id = ?)
+         ORDER BY eq.id DESC
+         LIMIT 150`,
+        [examId]
+    );
+
+    const practiceQuiz = [];
+    const seenQuestionIds = new Set();
+    const incorrectQuestions = questionPerformance.filter(question => !question.isCorrect);
+
+    incorrectQuestions.forEach((question) => {
+        if (practiceQuiz.length >= 6 || seenQuestionIds.has(question.id)) return;
+        seenQuestionIds.add(question.id);
+        practiceQuiz.push({
+            questionId: Number(question.id),
+            topic: normalizeTopic(question.topic, 'General'),
+            difficulty: normalizeDifficulty(question.difficulty),
+            question: question.question,
+            options: safeJsonParse(question.options, Array.isArray(question.options) ? question.options : []),
+            focusReason: 'Previously attempted incorrectly in the exam.'
+        });
+    });
+
+    practiceBankRows.forEach((question) => {
+        if (practiceQuiz.length >= 6 || seenQuestionIds.has(question.id)) return;
+        const topic = normalizeTopic(question.topic, 'General');
+        if (!weakTopicSet.has(topic)) return;
+
+        seenQuestionIds.add(question.id);
+        practiceQuiz.push({
+            questionId: Number(question.id),
+            topic,
+            difficulty: normalizeDifficulty(question.difficulty),
+            question: question.question,
+            options: safeJsonParse(question.options, []),
+            focusReason: `Additional reinforcement for weak topic: ${topic}.`
+        });
+    });
+
+    const [classTopicRows] = await pool.query(
+        `SELECT
+            COALESCE(NULLIF(eq.topic, ''), e.subject, 'General') as topic,
+            COUNT(sr.id) as attempts,
+            SUM(CASE WHEN sr.selected_option = eq.correct_answer THEN 1 ELSE 0 END) as correct_attempts
+         FROM student_responses sr
+         JOIN exam_sessions es ON sr.session_id = es.id
+         JOIN exam_questions eq ON sr.question_id = eq.id
+         JOIN exams e ON es.exam_id = e.id
+         WHERE es.exam_id = ?
+         GROUP BY topic
+         HAVING attempts > 0
+         ORDER BY attempts DESC`,
+        [examId]
+    );
+
+    const classWeakness = buildWeakTopicInsights(classTopicRows);
+    const classRemediation = buildClassRemediationSuggestions(classWeakness);
+
+    await pool.query(
+        `INSERT INTO exam_learning_recommendations (
+            result_id,
+            exam_id,
+            student_id,
+            weak_topics,
+            practice_quiz,
+            class_remediation
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            weak_topics = VALUES(weak_topics),
+            practice_quiz = VALUES(practice_quiz),
+            class_remediation = VALUES(class_remediation),
+            updated_at = CURRENT_TIMESTAMP`,
+        [
+            resultId,
+            examId,
+            studentId,
+            JSON.stringify(weakTopics),
+            JSON.stringify(practiceQuiz),
+            JSON.stringify(classRemediation)
+        ]
+    );
+
+    return {
+        weakTopics,
+        practiceQuiz,
+        classRemediation
+    };
 };
 
 // Create Exam
@@ -56,10 +474,11 @@ exports.createExam = async (req, res) => {
                     JSON.stringify(q.options),
                     q.correct_answer,
                     q.marks,
-                    normalizeDifficulty(q.difficulty)
+                    normalizeDifficulty(q.difficulty),
+                    normalizeTopic(q.topic, subject || 'General')
                 ]);
                 await connection.query(
-                    'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty) VALUES ?',
+                    'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty, topic) VALUES ?',
                     [questionValues]
                 );
             }
@@ -114,6 +533,157 @@ exports.getTeacherExams = async (req, res) => {
     }
 };
 
+// Get Detailed Analytics for Teacher Results Dashboard
+exports.getTeacherAnalytics = async (req, res) => {
+    try {
+        const { sql: teacherScopeSql, params: teacherScopeParams } = getTeacherScope(req.user);
+
+        const [overviewRows] = await pool.query(
+            `SELECT
+                COUNT(DISTINCT e.id) as total_exams,
+                COUNT(DISTINCT CASE WHEN es.status = 'active' THEN es.id END) as active_sessions,
+                COUNT(DISTINCT CASE WHEN DATE(er.submitted_at) = CURDATE() THEN er.id END) as completed_today,
+                COUNT(DISTINCT CASE WHEN (es.warnings_count > 0 OR COALESCE(es.is_suspended, FALSE) = TRUE) AND es.status IN ('completed', 'terminated', 'active') THEN es.id END) as pending_reviews,
+                COUNT(DISTINCT es.id) as started_sessions,
+                COUNT(DISTINCT CASE WHEN es.status = 'completed' THEN es.id END) as completed_sessions,
+                COUNT(DISTINCT er.id) as evaluated_attempts,
+                COUNT(DISTINCT CASE WHEN er.score >= e.passing_marks THEN er.id END) as passed_attempts,
+                COUNT(DISTINCT CASE WHEN er.total_marks > 0 AND (er.score / er.total_marks) >= 0.75 THEN er.id END) as distinction_attempts,
+                ROUND(AVG(CASE WHEN er.total_marks > 0 THEN (er.score / er.total_marks) * 100 END), 2) as avg_score
+             FROM exams e
+             LEFT JOIN exam_sessions es ON es.exam_id = e.id
+             LEFT JOIN exam_results er ON er.exam_id = e.id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}`,
+            teacherScopeParams
+        );
+
+        const [examTrends] = await pool.query(
+            `SELECT
+                e.id as exam_id,
+                e.title,
+                COUNT(er.id) as attempts,
+                SUM(CASE WHEN er.score >= e.passing_marks THEN 1 ELSE 0 END) as pass_count,
+                SUM(CASE WHEN er.score < e.passing_marks THEN 1 ELSE 0 END) as fail_count,
+                ROUND(AVG(CASE WHEN er.total_marks > 0 THEN (er.score / er.total_marks) * 100 END), 2) as avg_percentage,
+                ROUND(
+                    (SUM(CASE WHEN er.score >= e.passing_marks THEN 1 ELSE 0 END) / NULLIF(COUNT(er.id), 0)) * 100,
+                    2
+                ) as pass_rate
+             FROM exams e
+             LEFT JOIN exam_results er ON er.exam_id = e.id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}
+             GROUP BY e.id, e.title
+             HAVING attempts > 0
+             ORDER BY attempts DESC, avg_percentage DESC
+             LIMIT 8`,
+            teacherScopeParams
+        );
+
+        const [warningCorrelation] = await pool.query(
+            `SELECT
+                CASE
+                    WHEN COALESCE(sw.warnings_count, 0) = 0 THEN 'No Warnings'
+                    WHEN COALESCE(sw.warnings_count, 0) BETWEEN 1 AND 2 THEN '1-2 Warnings'
+                    ELSE '3+ Warnings'
+                END as warning_band,
+                COUNT(er.id) as attempts,
+                ROUND(AVG(CASE WHEN er.total_marks > 0 THEN (er.score / er.total_marks) * 100 END), 2) as avg_percentage
+             FROM exam_results er
+             JOIN exams e ON er.exam_id = e.id
+             LEFT JOIN (
+                SELECT exam_id, student_id, SUM(warnings_count) as warnings_count
+                FROM exam_sessions
+                GROUP BY exam_id, student_id
+             ) sw ON sw.exam_id = er.exam_id AND sw.student_id = er.student_id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}
+             GROUP BY warning_band
+             ORDER BY FIELD(warning_band, 'No Warnings', '1-2 Warnings', '3+ Warnings')`,
+            teacherScopeParams
+        );
+
+        const [topicWeaknessRows] = await pool.query(
+            `SELECT
+                COALESCE(NULLIF(eq.topic, ''), e.subject, 'General') as topic,
+                COUNT(sr.id) as attempts,
+                SUM(CASE WHEN sr.selected_option = eq.correct_answer THEN 1 ELSE 0 END) as correct_attempts
+             FROM student_responses sr
+             JOIN exam_sessions es ON sr.session_id = es.id
+             JOIN exam_questions eq ON sr.question_id = eq.id
+             JOIN exams e ON es.exam_id = e.id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}
+             GROUP BY topic
+             HAVING attempts > 0
+             ORDER BY attempts DESC`,
+            teacherScopeParams
+        );
+
+        const [recentResults] = await pool.query(
+            `SELECT
+                er.id,
+                er.score,
+                er.total_marks,
+                er.submitted_at,
+                s.username as student_name,
+                e.title as exam_title,
+                COALESCE(sw.warnings_count, 0) as warnings_count,
+                ROUND(CASE WHEN er.total_marks > 0 THEN (er.score / er.total_marks) * 100 ELSE 0 END, 2) as score_percentage
+             FROM exam_results er
+             JOIN students s ON er.student_id = s.id
+             JOIN exams e ON er.exam_id = e.id
+             LEFT JOIN (
+                SELECT exam_id, student_id, SUM(warnings_count) as warnings_count
+                FROM exam_sessions
+                GROUP BY exam_id, student_id
+             ) sw ON sw.exam_id = er.exam_id AND sw.student_id = er.student_id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}
+             ORDER BY er.submitted_at DESC
+             LIMIT 10`,
+            teacherScopeParams
+        );
+
+        const overview = overviewRows[0] || {};
+        const startedSessions = Number(overview.started_sessions || 0);
+        const completedSessions = Number(overview.completed_sessions || 0);
+        const evaluatedAttempts = Number(overview.evaluated_attempts || 0);
+        const passedAttempts = Number(overview.passed_attempts || 0);
+        const distinctionAttempts = Number(overview.distinction_attempts || 0);
+        const topicWeakness = buildWeakTopicInsights(topicWeaknessRows);
+        const classRemediationSuggestions = buildClassRemediationSuggestions(topicWeakness);
+
+        res.json({
+            totalExams: Number(overview.total_exams || 0),
+            activeSessions: Number(overview.active_sessions || 0),
+            completedToday: Number(overview.completed_today || 0),
+            pendingReviews: Number(overview.pending_reviews || 0),
+            startedSessions,
+            completedSessions,
+            completionRate: startedSessions > 0 ? Math.round((completedSessions / startedSessions) * 100) : 0,
+            evaluatedAttempts,
+            passRate: evaluatedAttempts > 0 ? Math.round((passedAttempts / evaluatedAttempts) * 100) : 0,
+            distinctionRate: evaluatedAttempts > 0 ? Math.round((distinctionAttempts / evaluatedAttempts) * 100) : 0,
+            avgScore: Number(overview.avg_score || 0),
+            examTrends: examTrends.map(row => ({
+                ...row,
+                attempts: Number(row.attempts || 0),
+                pass_count: Number(row.pass_count || 0),
+                fail_count: Number(row.fail_count || 0),
+                avg_percentage: Number(row.avg_percentage || 0),
+                pass_rate: Number(row.pass_rate || 0)
+            })),
+            warningCorrelation: warningCorrelation.map(row => ({
+                ...row,
+                attempts: Number(row.attempts || 0),
+                avg_percentage: Number(row.avg_percentage || 0)
+            })),
+            topicWeakness,
+            classRemediationSuggestions,
+            recentResults
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 // Delete Exam (restricted to owner or main admin)
 exports.deleteExam = async (req, res) => {
     try {
@@ -148,7 +718,7 @@ exports.getTeacherExamDetails = async (req, res) => {
         if (rows.length === 0) return res.status(404).json({ message: 'Exam not found or unauthorized' });
 
         const exam = rows[0];
-        const [questions] = await pool.query('SELECT id, question, options, correct_answer as correct, marks, difficulty FROM exam_questions WHERE exam_id = ?', [req.params.id]);
+        const [questions] = await pool.query('SELECT id, question, options, correct_answer as correct, marks, difficulty, topic FROM exam_questions WHERE exam_id = ?', [req.params.id]);
 
         // Parse options back to arrays for frontend
         const parsedQuestions = questions.map(q => ({
@@ -209,10 +779,11 @@ exports.updateExam = async (req, res) => {
                     const correctAnswer = q.correct_answer !== undefined ? q.correct_answer : (q.correct !== undefined ? q.correct : 0);
                     const marks = q.marks !== undefined ? q.marks : 5;
                     const difficulty = normalizeDifficulty(q.difficulty);
-                    return [id, questionText, optionsString, correctAnswer, marks, difficulty];
+                    const topic = normalizeTopic(q.topic, subject || 'General');
+                    return [id, questionText, optionsString, correctAnswer, marks, difficulty, topic];
                 });
                 await connection.query(
-                    'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty) VALUES ?',
+                    'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty, topic) VALUES ?',
                     [questionValues]
                 );
             }
@@ -395,10 +966,43 @@ exports.submitExam = async (req, res) => {
         );
         if (existing.length > 0) {
             console.log('[SUBMIT_EXAM] Already submitted, returning existing result');
-            return res.json({ message: 'Exam already submitted', resultId: existing[0].id });
+            const [existingRecommendationRows] = await pool.query(
+                `SELECT weak_topics, practice_quiz, class_remediation
+                 FROM exam_learning_recommendations
+                 WHERE result_id = ?
+                 LIMIT 1`,
+                [existing[0].id]
+            );
+
+            const existingRecommendations = existingRecommendationRows[0]
+                ? {
+                    weakTopics: safeJsonParse(existingRecommendationRows[0].weak_topics, []),
+                    practiceQuiz: safeJsonParse(existingRecommendationRows[0].practice_quiz, []),
+                    classRemediation: safeJsonParse(existingRecommendationRows[0].class_remediation, [])
+                }
+                : null;
+
+            return res.json({
+                message: 'Exam already submitted',
+                resultId: existing[0].id,
+                recommendations: existingRecommendations
+            });
         }
 
-        const [questions] = await pool.query('SELECT id, correct_answer, marks FROM exam_questions WHERE exam_id = ?', [examId]);
+        const [questions] = await pool.query(
+            `SELECT
+                eq.id,
+                eq.question,
+                eq.options,
+                eq.correct_answer,
+                eq.marks,
+                eq.difficulty,
+                COALESCE(NULLIF(eq.topic, ''), e.subject, 'General') as topic
+             FROM exam_questions eq
+             JOIN exams e ON eq.exam_id = e.id
+             WHERE eq.exam_id = ?`,
+            [examId]
+        );
 
         console.log(`[SUBMIT_EXAM] Found ${questions.length} questions for exam ${examId}`);
 
@@ -406,15 +1010,29 @@ exports.submitExam = async (req, res) => {
         let correctCount = 0;
         let examTotalMarks = 0;
         const safeAnswers = answers || {};
+        const questionPerformance = [];
 
         questions.forEach(q => {
-            examTotalMarks += q.marks;
+            const marks = Number(q.marks || 0);
+            examTotalMarks += marks;
             // answers keys may be strings (from JSON), q.id is a number
             const studentAnswer = safeAnswers[q.id] !== undefined ? safeAnswers[q.id] : safeAnswers[String(q.id)];
-            if (studentAnswer !== undefined && Number(studentAnswer) === Number(q.correct_answer)) {
-                score += q.marks;
+            const isCorrect = studentAnswer !== undefined && Number(studentAnswer) === Number(q.correct_answer);
+            if (isCorrect) {
+                score += marks;
                 correctCount++;
             }
+
+            questionPerformance.push({
+                id: q.id,
+                question: q.question,
+                options: q.options,
+                difficulty: q.difficulty,
+                topic: q.topic,
+                selectedOption: studentAnswer !== undefined ? Number(studentAnswer) : null,
+                correctAnswer: Number(q.correct_answer),
+                isCorrect
+            });
         });
 
         // Fallback to exam table total_marks if no questions found (unlikely)
@@ -434,12 +1052,61 @@ exports.submitExam = async (req, res) => {
 
         // Mark session as completed
         await pool.query(
-            'UPDATE exam_sessions SET status = "completed", end_time = CURRENT_TIMESTAMP WHERE student_id = ? AND exam_id = ? AND status = "active"',
+            'UPDATE exam_sessions SET status = \"completed\", is_suspended = FALSE, end_time = CURRENT_TIMESTAMP WHERE student_id = ? AND exam_id = ? AND status = \"active\"',
+            [studentId, examId]
+        );
+        const [latestSessionRows] = await pool.query(
+            `SELECT id
+             FROM exam_sessions
+             WHERE student_id = ? AND exam_id = ?
+             ORDER BY start_time DESC
+             LIMIT 1`,
             [studentId, examId]
         );
 
-        logger('SUBMIT_EXAM', `Student ID ${studentId} submitted exam ID ${examId}`, { score, resultId: result.insertId });
+        if (latestSessionRows.length > 0) {
+            try {
+                await recordProctorAction({
+                    sessionId: latestSessionRows[0].id,
+                    examId: Number(examId),
+                    studentId,
+                    actionType: 'exam-submitted',
+                    reason: 'Student submitted exam.',
+                    actionedBy: studentId,
+                    actionedByRole: 'student',
+                    metadata: {
+                        score,
+                        totalMarks: examTotalMarks
+                    }
+                });
+            } catch (auditError) {
+                console.error('[SUBMIT_EXAM_AUDIT_LOG_ERROR]', auditError);
+            }
+        }
 
+        let recommendations = {
+            weakTopics: [],
+            practiceQuiz: [],
+            classRemediation: []
+        };
+        try {
+            recommendations = await buildAdaptiveRecommendations({
+                examId: Number(examId),
+                studentId,
+                resultId: result.insertId,
+                questionPerformance
+            });
+        } catch (recommendationError) {
+            console.error('[SUBMIT_EXAM_RECOMMENDATION_ERROR]', recommendationError);
+        }
+
+        logger('SUBMIT_EXAM', `Student ID ${studentId} submitted exam ID ${examId}`, { score, resultId: result.insertId });
+        res.json({
+            message: 'Exam submitted successfully',
+            score,
+            resultId: result.insertId,
+            recommendations
+        });
         res.json({ message: 'Exam submitted successfully', score, resultId: result.insertId });
     } catch (error) {
         console.error('[SUBMIT_EXAM_ERROR]', error);
@@ -491,16 +1158,35 @@ exports.logWarning = async (req, res) => {
             'UPDATE exam_sessions SET warnings_count = warnings_count + 1 WHERE id = ?',
             [sessionId]
         );
+        const [sessionRows] = await pool.query(
+            'SELECT exam_id, student_id FROM exam_sessions WHERE id = ? LIMIT 1',
+            [sessionId]
+        );
+        const session = sessionRows[0];
+
+        if (session) {
+            await recordProctorAction({
+                sessionId,
+                examId: session.exam_id,
+                studentId: session.student_id,
+                actionType: 'auto-warning',
+                reason: message || warningType || 'Automated proctoring warning detected.',
+                actionedBy: null,
+                actionedByRole: 'system',
+                metadata: {
+                    warningType
+                }
+            });
+        }
 
         res.json({ message: 'Warning logged' });
 
         // Emit real-time warning to teacher
         const io = req.app.get('socketio');
         if (io) {
-            const [session] = await pool.query('SELECT exam_id FROM exam_sessions WHERE id = ?', [sessionId]);
-            if (session.length > 0) {
-                io.to(`exam-${session[0].exam_id}`).emit('student-warning-alert', {
-                    userId: req.user.id,
+            if (session) {
+                io.to(`exam-${session.exam_id}`).emit('student-warning-alert', {
+                    userId: session.student_id,
                     sessionId,
                     warningType,
                     message
@@ -560,14 +1246,329 @@ exports.updateResponse = async (req, res) => {
 exports.getActiveSessions = async (req, res) => {
     try {
         const { examId } = req.params;
+        const authorizedExam = await getAuthorizedExam(Number(examId), req.user);
+        if (!authorizedExam) {
+            return res.status(404).json({ message: 'Exam not found or unauthorized' });
+        }
+
+        const { sql: teacherScopeSql, params: teacherScopeParams } = getSessionTeacherScope(req.user);
         const [rows] = await pool.query(`
-            SELECT es.*, s.username as student_name, s.prn_number,
-            (SELECT COUNT(*) FROM exam_warnings WHERE session_id = es.id) as warnings_count
-            FROM exam_sessions es 
-            JOIN students s ON es.student_id = s.id 
-            WHERE es.exam_id = ? AND es.status = 'active'
-        `, [examId]);
-        res.json(rows);
+            SELECT
+                es.id,
+                es.exam_id,
+                es.student_id,
+                es.start_time,
+                es.end_time,
+                es.status,
+                es.warnings_count,
+                COALESCE(es.is_suspended, FALSE) as is_suspended,
+                s.username as student_name,
+                s.prn_number,
+                (SELECT esa.action_type FROM exam_session_actions esa WHERE esa.session_id = es.id ORDER BY esa.created_at DESC LIMIT 1) as last_action,
+                (SELECT esa.created_at FROM exam_session_actions esa WHERE esa.session_id = es.id ORDER BY esa.created_at DESC LIMIT 1) as last_update
+            FROM exam_sessions es
+            JOIN exams e ON es.exam_id = e.id
+            JOIN students s ON es.student_id = s.id
+            WHERE es.exam_id = ? AND es.status = 'active'${teacherScopeSql}
+            ORDER BY es.start_time DESC
+        `, [examId, ...teacherScopeParams]);
+
+        res.json(rows.map(row => ({
+            ...row,
+            is_suspended: !!row.is_suspended
+        })));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get Live Violation Timeline for an Exam
+exports.getProctoringTimeline = async (req, res) => {
+    try {
+        const examId = Number(req.params.examId);
+        const authorizedExam = await getAuthorizedExam(examId, req.user);
+        if (!authorizedExam) {
+            return res.status(404).json({ message: 'Exam not found or unauthorized' });
+        }
+
+        const { sql: teacherScopeSql, params: teacherScopeParams } = getSessionTeacherScope(req.user);
+        const [sessions] = await pool.query(
+            `SELECT
+                es.id,
+                es.exam_id,
+                es.student_id,
+                es.start_time,
+                es.end_time,
+                es.status,
+                es.warnings_count,
+                COALESCE(es.is_suspended, FALSE) as is_suspended,
+                s.username as student_name,
+                s.prn_number
+             FROM exam_sessions es
+             JOIN exams e ON es.exam_id = e.id
+             JOIN students s ON es.student_id = s.id
+             WHERE es.exam_id = ? AND es.status = 'active'${teacherScopeSql}
+             ORDER BY es.start_time DESC`,
+            [examId, ...teacherScopeParams]
+        );
+
+        if (!sessions.length) {
+            return res.json({ sessions: [] });
+        }
+
+        const sessionIds = sessions.map(session => session.id);
+        const [warningRows] = await pool.query(
+            `SELECT id, session_id, warning_type, message, timestamp
+             FROM exam_warnings
+             WHERE session_id IN (?)
+             ORDER BY timestamp DESC
+             LIMIT 500`,
+            [sessionIds]
+        );
+        const [actionRows] = await pool.query(
+            `SELECT
+                esa.id,
+                esa.session_id,
+                esa.action_type,
+                esa.reason,
+                esa.actioned_by,
+                esa.actioned_by_role,
+                esa.metadata,
+                esa.created_at,
+                t.username as teacher_name
+             FROM exam_session_actions esa
+             LEFT JOIN teachers t ON esa.actioned_by = t.id AND esa.actioned_by_role = 'teacher'
+             WHERE esa.session_id IN (?)
+             ORDER BY esa.created_at DESC
+             LIMIT 500`,
+            [sessionIds]
+        );
+
+        const timelineBySession = {};
+        sessionIds.forEach(sessionId => {
+            timelineBySession[sessionId] = [];
+        });
+
+        warningRows.forEach(warning => {
+            if (timelineBySession[warning.session_id]) {
+                timelineBySession[warning.session_id].push(mapWarningTimelineEntry(warning));
+            }
+        });
+        actionRows.forEach(action => {
+            if (timelineBySession[action.session_id]) {
+                timelineBySession[action.session_id].push(mapActionTimelineEntry(action));
+            }
+        });
+
+        const mergedSessions = sessions.map(session => {
+            const timeline = (timelineBySession[session.id] || [])
+                .sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))
+                .slice(0, 20);
+            return {
+                ...session,
+                is_suspended: !!session.is_suspended,
+                timeline
+            };
+        });
+
+        res.json({ sessions: mergedSessions });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get Full Session Audit Trail
+exports.getSessionAuditTrail = async (req, res) => {
+    try {
+        const sessionId = Number(req.params.sessionId);
+        const session = await getAuthorizedSession(sessionId, req.user);
+        if (!session) {
+            return res.status(404).json({ message: 'Session not found or unauthorized' });
+        }
+
+        const [warningRows] = await pool.query(
+            `SELECT id, session_id, warning_type, message, snapshot_data, timestamp
+             FROM exam_warnings
+             WHERE session_id = ?
+             ORDER BY timestamp DESC
+             LIMIT 500`,
+            [sessionId]
+        );
+        const [actionRows] = await pool.query(
+            `SELECT
+                esa.id,
+                esa.session_id,
+                esa.action_type,
+                esa.reason,
+                esa.actioned_by,
+                esa.actioned_by_role,
+                esa.metadata,
+                esa.created_at,
+                t.username as teacher_name
+             FROM exam_session_actions esa
+             LEFT JOIN teachers t ON esa.actioned_by = t.id AND esa.actioned_by_role = 'teacher'
+             WHERE esa.session_id = ?
+             ORDER BY esa.created_at DESC
+             LIMIT 500`,
+            [sessionId]
+        );
+
+        const timeline = [
+            ...warningRows.map(mapWarningTimelineEntry),
+            ...actionRows.map(mapActionTimelineEntry)
+        ].sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt));
+
+        // ── GENERATE AI MONITORING SUMMARY ──────────────────────────────────
+        let aiProctorAnalysis = 'No suspicious activity requiring deep analysis.';
+        if (warningRows.length > 0) {
+            try {
+                const warningCounts = warningRows.reduce((acc, w) => {
+                    const wt = w.warning_type || 'unclassified';
+                    acc[wt] = (acc[wt] || 0) + 1;
+                    return acc;
+                }, {});
+                
+                const prompt = `
+                Evaluate student integrity for this exam session.
+                Student: ${session.student_name}
+                Total Warnings: ${warningRows.length}
+                Warning Types: ${JSON.stringify(warningCounts)}
+                Recent Log Summary: ${warningRows.slice(0, 5).map(w => w.message).join(' | ')}
+                
+                Provide a 1-2 sentence integrity risk assessment. Be objective.
+                `;
+                const { content } = await generateText({
+                    taskType: 'monitoring',
+                    prompt,
+                    temperature: 0.3,
+                    groqModel: 'llama-3.1-8b-instant'
+                });
+                aiProctorAnalysis = content;
+            } catch (aiErr) {
+                console.warn('[AI] Proctor analysis failed:', aiErr.message);
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────
+
+        res.json({
+            session: {
+                ...session,
+                is_suspended: !!session.is_suspended,
+                aiProctorAnalysis
+            },
+            timeline,
+            auditTrail: timeline.filter(entry => entry.eventType === 'action')
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Apply Proctor Action (Warn/Suspend/Terminate)
+exports.applyProctorAction = async (req, res) => {
+    try {
+        const sessionId = Number(req.params.sessionId);
+        const requestedActionType = String(req.body?.actionType || '').trim().toLowerCase();
+        const reasonInput = String(req.body?.reason || '').trim();
+
+        if (!['warn', 'suspend', 'terminate'].includes(requestedActionType)) {
+            return res.status(400).json({ message: 'Invalid actionType. Use warn, suspend, or terminate.' });
+        }
+
+        const session = await getAuthorizedSession(sessionId, req.user);
+        if (!session) {
+            return res.status(404).json({ message: 'Session not found or unauthorized' });
+        }
+
+        const reason = reasonInput || getDefaultProctorReason(requestedActionType);
+
+        if (requestedActionType === 'warn') {
+            await pool.query(
+                'INSERT INTO exam_warnings (session_id, warning_type, message) VALUES (?, ?, ?)',
+                [sessionId, 'teacher-warning', reason]
+            );
+            await pool.query(
+                'UPDATE exam_sessions SET warnings_count = warnings_count + 1 WHERE id = ?',
+                [sessionId]
+            );
+        } else if (requestedActionType === 'suspend') {
+            await pool.query(
+                'UPDATE exam_sessions SET is_suspended = TRUE WHERE id = ?',
+                [sessionId]
+            );
+        } else if (requestedActionType === 'terminate') {
+            await pool.query(
+                'UPDATE exam_sessions SET status = \"terminated\", is_suspended = TRUE, end_time = CURRENT_TIMESTAMP WHERE id = ?',
+                [sessionId]
+            );
+        }
+
+        await recordProctorAction({
+            sessionId,
+            examId: session.exam_id,
+            studentId: session.student_id,
+            actionType: requestedActionType,
+            reason,
+            actionedBy: req.user.id,
+            actionedByRole: 'teacher',
+            metadata: {
+                source: 'teacher-action-center'
+            }
+        });
+
+        const [teacherRows] = await pool.query('SELECT username FROM teachers WHERE id = ? LIMIT 1', [req.user.id]);
+        const actionedByName = teacherRows[0]?.username || `Teacher #${req.user.id}`;
+        const [updatedSessionRows] = await pool.query(
+            `SELECT
+                id,
+                exam_id,
+                student_id,
+                status,
+                warnings_count,
+                COALESCE(is_suspended, FALSE) as is_suspended
+             FROM exam_sessions
+             WHERE id = ?
+             LIMIT 1`,
+            [sessionId]
+        );
+        const updatedSession = updatedSessionRows[0] || null;
+
+        const io = req.app.get('socketio');
+        const actionPayload = {
+            sessionId,
+            examId: session.exam_id,
+            studentId: session.student_id,
+            actionType: requestedActionType,
+            reason,
+            actionedBy: req.user.id,
+            actionedByName,
+            actionedAt: new Date().toISOString()
+        };
+
+        if (io) {
+            io.to(`exam-${session.exam_id}`).emit('teacher-proctor-action', actionPayload);
+
+            if (requestedActionType === 'warn') {
+                emitToStudentSocket(io, session.exam_id, session.student_id, 'warning-received', {
+                    message: reason,
+                    type: 'teacher-warning'
+                });
+            } else {
+                emitToStudentSocket(io, session.exam_id, session.student_id, 'student-session-action', {
+                    actionType: requestedActionType,
+                    reason
+                });
+            }
+        }
+
+        res.json({
+            message: `Session ${requestedActionType} action applied successfully.`,
+            session: updatedSession ? {
+                ...updatedSession,
+                is_suspended: !!updatedSession.is_suspended
+            } : null,
+            action: actionPayload
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -577,36 +1578,71 @@ exports.getActiveSessions = async (req, res) => {
 exports.getDashboardStats = async (req, res) => {
     try {
         const teacherId = req.user.id;
+        const teacherScopeSql = req.user.isMainAdmin ? '' : ' AND e.teacher_id = ?';
+        const teacherScopeParams = req.user.isMainAdmin ? [] : [teacherId];
 
-        let examQuery = 'SELECT COUNT(*) as total FROM exams WHERE is_deleted = FALSE';
-        let examParams = [];
-        
-        let sessionQuery = 'SELECT COUNT(*) as total FROM exam_sessions es JOIN exams e ON es.exam_id = e.id WHERE es.status = "active"';
-        let sessionParams = [];
-        
-        let resultQuery = 'SELECT er.*, s.username as student_name, e.title as exam_title FROM exam_results er JOIN students s ON er.student_id = s.id JOIN exams e ON er.exam_id = e.id WHERE 1=1';
-        let resultParams = [];
+        const [examCountRows] = await pool.query(
+            `SELECT COUNT(*) as total
+             FROM exams e
+             WHERE e.is_deleted = FALSE${teacherScopeSql}`,
+            teacherScopeParams
+        );
 
-        if (!req.user.isMainAdmin) {
-            examQuery += ' AND teacher_id = ?';
-            examParams.push(teacherId);
-            
-            sessionQuery += ' AND e.teacher_id = ?';
-            sessionParams.push(teacherId);
-            
-            resultQuery += ' AND e.teacher_id = ?';
-            resultParams.push(teacherId);
-        }
+        const [sessionStatsRows] = await pool.query(
+            `SELECT 
+                COUNT(*) as started_sessions,
+                SUM(CASE WHEN es.status = 'active' THEN 1 ELSE 0 END) as active_sessions,
+                SUM(CASE WHEN es.status = 'completed' THEN 1 ELSE 0 END) as completed_sessions,
+                SUM(CASE WHEN (es.warnings_count > 0 OR COALESCE(es.is_suspended, FALSE) = TRUE) AND es.status IN ('completed', 'terminated', 'active') THEN 1 ELSE 0 END) as pending_reviews
+             FROM exam_sessions es
+             JOIN exams e ON es.exam_id = e.id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}`,
+            teacherScopeParams
+        );
 
-        resultQuery += ' ORDER BY er.submitted_at DESC LIMIT 5';
+        const [resultStatsRows] = await pool.query(
+            `SELECT
+                COUNT(*) as evaluated_attempts,
+                SUM(CASE WHEN DATE(er.submitted_at) = CURDATE() THEN 1 ELSE 0 END) as completed_today
+             FROM exam_results er
+             JOIN exams e ON er.exam_id = e.id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}`,
+            teacherScopeParams
+        );
 
-        const [examCount] = await pool.query(examQuery, examParams);
-        const [activeSessions] = await pool.query(sessionQuery, sessionParams);
-        const [recentResults] = await pool.query(resultQuery, resultParams);
+        const [recentResults] = await pool.query(
+            `SELECT
+                er.*,
+                s.username as student_name,
+                e.title as exam_title,
+                COALESCE(sw.warnings_count, 0) as warnings_count,
+                ROUND(CASE WHEN er.total_marks > 0 THEN (er.score / er.total_marks) * 100 ELSE 0 END, 2) as score_percentage
+             FROM exam_results er
+             JOIN students s ON er.student_id = s.id
+             JOIN exams e ON er.exam_id = e.id
+             LEFT JOIN (
+                SELECT exam_id, student_id, SUM(warnings_count) as warnings_count
+                FROM exam_sessions
+                GROUP BY exam_id, student_id
+             ) sw ON sw.exam_id = er.exam_id AND sw.student_id = er.student_id
+             WHERE e.is_deleted = FALSE${teacherScopeSql}
+             ORDER BY er.submitted_at DESC
+             LIMIT 5`,
+            teacherScopeParams
+        );
+
+        const totalExams = Number(examCountRows[0]?.total || 0);
+        const activeSessions = Number(sessionStatsRows[0]?.active_sessions || 0);
+        const completedSessions = Number(sessionStatsRows[0]?.completed_sessions || 0);
+        const startedSessions = Number(sessionStatsRows[0]?.started_sessions || 0);
+        const completionRate = startedSessions > 0 ? Math.round((completedSessions / startedSessions) * 100) : 0;
 
         res.json({
-            totalExams: examCount[0].total,
-            activeSessions: activeSessions[0].total,
+            totalExams,
+            activeSessions,
+            completedToday: Number(resultStatsRows[0]?.completed_today || 0),
+            pendingReviews: Number(sessionStatsRows[0]?.pending_reviews || 0),
+            completionRate,
             recentResults
         });
     } catch (error) {
@@ -630,15 +1666,16 @@ exports.uploadBulkQuestions = async (req, res) => {
             options: [row.option1, row.option2, row.option3, row.option4],
             correct_answer: parseInt(row.correct_answer) - 1, // assuming 1-based in excel
             marks: row.marks || 1,
-            difficulty: row.difficulty || 'Medium'
+            difficulty: row.difficulty || 'Medium',
+            topic: normalizeTopic(row.topic)
         }));
 
         if (examId) {
             const questionValues = questions.map(q => [
-                examId, q.question, JSON.stringify(q.options), q.correct_answer, q.marks, q.difficulty
+                examId, q.question, JSON.stringify(q.options), q.correct_answer, q.marks, normalizeDifficulty(q.difficulty), normalizeTopic(q.topic)
             ]);
             await pool.query(
-                'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty) VALUES ?',
+                'INSERT INTO exam_questions (exam_id, question, options, correct_answer, marks, difficulty, topic) VALUES ?',
                 [questionValues]
             );
 
@@ -661,11 +1698,12 @@ exports.uploadBulkQuestions = async (req, res) => {
 // Get All Results for Teacher
 exports.getTeacherResults = async (req, res) => {
     try {
-        const teacherId = req.user.id;
-
-        let query = `
+        const { sql: teacherScopeSql, params: teacherScopeParams } = getTeacherScope(req.user);
+        const [results] = await pool.query(
+            `
             SELECT 
                 er.id,
+                er.exam_id,
                 er.score,
                 er.total_questions,
                 er.correct_answers,
@@ -673,24 +1711,133 @@ exports.getTeacherResults = async (req, res) => {
                 er.submitted_at,
                 s.username as student_name,
                 s.email as student_email,
-                e.title as exam_title
+                e.title as exam_title,
+                e.passing_marks,
+                COALESCE(sw.warnings_count, 0) as warnings_count,
+                ROUND(CASE WHEN er.total_marks > 0 THEN (er.score / er.total_marks) * 100 ELSE 0 END, 2) as score_percentage
             FROM exam_results er
             JOIN exams e ON er.exam_id = e.id
             JOIN students s ON er.student_id = s.id
-            WHERE 1=1
-        `;
-        const params = [];
-        
-        if (!req.user.isMainAdmin) {
-            query += ` AND e.teacher_id = ?`;
-            params.push(teacherId);
-        }
-        
-        query += ` ORDER BY er.submitted_at DESC`;
-
-        const [results] = await pool.query(query, params);
+            LEFT JOIN (
+                SELECT exam_id, student_id, SUM(warnings_count) as warnings_count
+                FROM exam_sessions
+                GROUP BY exam_id, student_id
+            ) sw ON sw.exam_id = er.exam_id AND sw.student_id = er.student_id
+            WHERE e.is_deleted = FALSE${teacherScopeSql}
+            ORDER BY er.submitted_at DESC
+        `,
+            teacherScopeParams
+        );
 
         res.json({ results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Export Teacher Results (CSV/PDF)
+exports.exportTeacherResults = async (req, res) => {
+    try {
+        const format = String(req.query.format || 'csv').trim().toLowerCase();
+        if (!['csv', 'pdf'].includes(format)) {
+            return res.status(400).json({ message: 'Invalid export format. Use csv or pdf.' });
+        }
+
+        const { sql: teacherScopeSql, params: teacherScopeParams } = getTeacherScope(req.user);
+        const [rows] = await pool.query(
+            `
+            SELECT
+                er.id,
+                er.score,
+                er.total_marks,
+                er.submitted_at,
+                s.username as student_name,
+                s.email as student_email,
+                e.title as exam_title,
+                e.passing_marks,
+                COALESCE(sw.warnings_count, 0) as warnings_count,
+                ROUND(CASE WHEN er.total_marks > 0 THEN (er.score / er.total_marks) * 100 ELSE 0 END, 2) as score_percentage
+            FROM exam_results er
+            JOIN exams e ON er.exam_id = e.id
+            JOIN students s ON er.student_id = s.id
+            LEFT JOIN (
+                SELECT exam_id, student_id, SUM(warnings_count) as warnings_count
+                FROM exam_sessions
+                GROUP BY exam_id, student_id
+            ) sw ON sw.exam_id = er.exam_id AND sw.student_id = er.student_id
+            WHERE e.is_deleted = FALSE${teacherScopeSql}
+            ORDER BY er.submitted_at DESC
+        `,
+            teacherScopeParams
+        );
+
+        const now = new Date();
+        const fileStamp = now.toISOString().slice(0, 19).replace(/[:T]/g, '-');
+
+        if (format === 'csv') {
+            const headers = [
+                'Student Name',
+                'Student Email',
+                'Exam',
+                'Score',
+                'Total Marks',
+                'Percentage',
+                'Status',
+                'Warnings',
+                'Submitted At'
+            ];
+            const lines = [headers.join(',')];
+
+            rows.forEach((row) => {
+                const score = Number(row.score || 0);
+                const totalMarks = Number(row.total_marks || 0);
+                const percentage = Number(row.score_percentage || 0);
+                const status = score >= Number(row.passing_marks || 0) ? 'Pass' : 'Fail';
+                lines.push([
+                    escapeCsvCell(row.student_name),
+                    escapeCsvCell(row.student_email),
+                    escapeCsvCell(row.exam_title),
+                    score,
+                    totalMarks,
+                    percentage,
+                    status,
+                    Number(row.warnings_count || 0),
+                    escapeCsvCell(new Date(row.submitted_at).toISOString())
+                ].join(','));
+            });
+
+            const csvContent = `${lines.join('\n')}\n`;
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename=\"teacher-results-${fileStamp}.csv\"`);
+            return res.send(csvContent);
+        }
+
+        const totalRecords = rows.length;
+        const passCount = rows.filter(row => Number(row.score || 0) >= Number(row.passing_marks || 0)).length;
+        const avgPercentage = totalRecords > 0
+            ? Number((rows.reduce((acc, row) => acc + Number(row.score_percentage || 0), 0) / totalRecords).toFixed(2))
+            : 0;
+
+        const pdfLines = [
+            'Teacher Results Export',
+            `Generated At: ${now.toISOString()}`,
+            `Total Records: ${totalRecords}`,
+            `Pass Count: ${passCount}`,
+            `Average Percentage: ${avgPercentage}%`,
+            ''
+        ];
+
+        rows.forEach((row, index) => {
+            const status = Number(row.score || 0) >= Number(row.passing_marks || 0) ? 'Pass' : 'Fail';
+            pdfLines.push(
+                `${index + 1}. ${row.student_name} (${row.student_email}) | ${row.exam_title} | ${row.score}/${row.total_marks} (${row.score_percentage}%) | ${status} | Warnings: ${row.warnings_count} | Submitted: ${new Date(row.submitted_at).toISOString()}`
+            );
+        });
+
+        const pdfBuffer = buildSimplePdfBuffer(pdfLines);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=\"teacher-results-${fileStamp}.pdf\"`);
+        return res.send(pdfBuffer);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -713,14 +1860,24 @@ exports.getStudentResults = async (req, res) => {
                 er.submitted_at,
                 e.title as exam_title,
                 e.subject as exam_subject,
-                e.passing_marks
+                e.passing_marks,
+                elr.weak_topics,
+                elr.practice_quiz,
+                elr.class_remediation
             FROM exam_results er
             JOIN exams e ON er.exam_id = e.id
             WHERE er.student_id = ?
             ORDER BY er.submitted_at DESC
         `, [studentId]);
 
-        res.json({ results });
+        const parsedResults = results.map(result => ({
+            ...result,
+            weak_topics: safeJsonParse(result.weak_topics, []),
+            practice_quiz: safeJsonParse(result.practice_quiz, []),
+            class_remediation: safeJsonParse(result.class_remediation, [])
+        }));
+
+        res.json({ results: parsedResults });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -760,3 +1917,131 @@ async function createExamNotifications(examId, title, dept, year) {
         console.error('Error creating exam notifications:', error);
     }
 }
+// Get Detailed Item Analysis (Exam Health)
+exports.getExamItemAnalysis = async (req, res) => {
+    try {
+        const { examId } = req.params;
+        const exam = await getAuthorizedExam(Number(examId), req.user);
+        if (!exam) return res.status(404).json({ message: 'Exam not found or unauthorized' });
+
+        const [rows] = await pool.query(
+            `SELECT 
+                eq.id,
+                eq.question,
+                eq.options,
+                eq.correct_answer,
+                eq.difficulty,
+                eq.topic,
+                COUNT(sr.id) as attempts,
+                SUM(CASE WHEN sr.selected_option = eq.correct_answer THEN 1 ELSE 0 END) as correct_responses,
+                AVG(sr.time_spent) as avg_time_seconds,
+                SUM(CASE WHEN sr.selected_option = 0 THEN 1 ELSE 0 END) as opt0_count,
+                SUM(CASE WHEN sr.selected_option = 1 THEN 1 ELSE 0 END) as opt1_count,
+                SUM(CASE WHEN sr.selected_option = 2 THEN 1 ELSE 0 END) as opt2_count,
+                SUM(CASE WHEN sr.selected_option = 3 THEN 1 ELSE 0 END) as opt3_count,
+                SUM(CASE WHEN sr.selected_option IS NULL THEN 1 ELSE 0 END) as skipped_count
+             FROM exam_questions eq
+             LEFT JOIN student_responses sr ON eq.id = sr.question_id
+             WHERE eq.exam_id = ?
+             GROUP BY eq.id`,
+            [examId]
+        );
+
+        const analyzedQuestions = rows.map(q => {
+            const attempts = Number(q.attempts || 0);
+            const corrects = Number(q.correct_responses || 0);
+            const successRate = attempts > 0 ? (corrects / attempts) * 100 : 0;
+            
+            // Ambiguity detection (Simple: if standard deviation of option selection is low, it's mixed)
+            const optCounts = [Number(q.opt0_count), Number(q.opt1_count), Number(q.opt2_count), Number(q.opt3_count)];
+            const nonZeroOpts = optCounts.filter(c => c > 0).length;
+            
+            // Ambiguity threshold: If students are split significantly across 3 or more options
+            const isAmbiguous = attempts > 5 && nonZeroOpts >= 3 && (corrects / attempts) < 0.4;
+            const isHard = attempts > 5 && successRate < 30;
+
+            return {
+                id: q.id,
+                question: q.question,
+                topic: q.topic,
+                difficulty: q.difficulty,
+                correct_answer: q.correct_answer,
+                attempts,
+                successRate: Number(successRate.toFixed(2)),
+                avgTime: Number(Number(q.avg_time_seconds || 0).toFixed(1)),
+                optionDistribution: optCounts,
+                skippedCount: Number(q.skipped_count || 0),
+                healthTags: [
+                    ...(isAmbiguous ? ['Ambiguous'] : []),
+                    ...(isHard ? ['High Difficulty'] : []),
+                    ...(attempts > 0 && successRate > 85 ? ['Concept Mastered'] : [])
+                ]
+            };
+        });
+
+        // Overall Exam Health Metrics
+        const overallSuccessRate = analyzedQuestions.length > 0 
+            ? analyzedQuestions.reduce((sum, q) => sum + q.successRate, 0) / analyzedQuestions.length 
+            : 0;
+
+        // ── GENREATE AI HEALTH INSIGHTS ────────────────────────────────────
+        let aiSummary = '';
+        try {
+            const prompt = `
+            Analyze this exam performance data and provide a professional 2-sentence summary for the teacher.
+            Exam: ${exam.title}
+            Overall Success Rate: ${overallSuccessRate.toFixed(2)}%
+            Total Questions Analyzed: ${analyzedQuestions.length}
+            Hardest Topics: ${[...new Set(analyzedQuestions.filter(q => q.successRate < 50).map(q => q.topic))].join(', ') || 'None'}
+            Ambiguous Questions Found: ${analyzedQuestions.filter(q => q.healthTags.includes('Ambiguous')).length}
+            
+            Identify if the exam was too hard, well-balanced, or too easy, and provide one actionable recommendation.
+            `;
+            const { content } = await generateText({
+                taskType: 'reporting',
+                prompt,
+                temperature: 0.5,
+                groqModel: 'llama-3.1-8b-instant'
+            });
+            aiSummary = content;
+        } catch (aiErr) {
+            console.warn('[AI] Health Summary failed:', aiErr.message);
+        }
+        // ──────────────────────────────────────────────────────────────────
+
+        res.json({
+            examTitle: exam.title,
+            aiSummary,
+            metrics: {
+                overallSuccessRate: Number(overallSuccessRate.toFixed(2)),
+                hardestQuestions: analyzedQuestions.filter(q => q.successRate < 40).sort((a,b) => a.successRate - b.successRate).slice(0, 5),
+                longestQuestions: [...analyzedQuestions].sort((a,b) => b.avgTime - a.avgTime).slice(0, 5),
+                ambiguousQuestions: analyzedQuestions.filter(q => q.healthTags.includes('Ambiguous'))
+            },
+            allQuestions: analyzedQuestions
+        });
+
+    } catch (error) {
+        console.error('ITEM_ANALYSIS_ERROR', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.saveExamSnapshot = async (req, res) => {
+    try {
+        const { sessionId, snapshotData } = req.body;
+        if (!sessionId || !snapshotData) {
+            return res.status(400).json({ message: 'Missing sessionId or snapshotData' });
+        }
+
+        await pool.query(
+            'INSERT INTO exam_warnings (session_id, warning_type, message, snapshot_data) VALUES (?, ?, ?, ?)',
+            [sessionId, 'periodic-snapshot', 'Automated security snapshot', snapshotData]
+        );
+
+        res.json({ message: 'Snapshot saved successfully' });
+    } catch (error) {
+        console.error('Error saving snapshot:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

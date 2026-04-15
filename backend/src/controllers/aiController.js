@@ -1,4 +1,7 @@
 const pdf = require('pdf-parse');
+const mammoth = require('mammoth');
+const xlsx = require('xlsx');
+const { parse } = require('csv-parse/sync');
 const Tesseract = require('tesseract.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const logger = require('../utils/logger.js');
@@ -53,6 +56,7 @@ exports.generateQuestions = async (req, res) => {
         if (req.file) {
             const mimetype = req.file.mimetype;
             const buffer = req.file.buffer;
+            const originalName = req.file.originalname.toLowerCase();
 
             if (mimetype === 'application/pdf') {
                 const pdfData = await pdf(buffer);
@@ -71,16 +75,31 @@ exports.generateQuestions = async (req, res) => {
                         logger('WARN', 'Scanned PDF OCR fallback failed', { message: ocrError.message });
                     }
                 }
-
-                logger('INFO', 'Extracted text from PDF', {
-                    length: fileContent.length,
-                    extractionMethod
-                });
+            } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || originalName.endsWith('.docx')) {
+                const result = await mammoth.extractRawText({ buffer });
+                fileContent = result.value;
+                extractionMethod = 'mammoth-docx';
+            } else if (mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || originalName.endsWith('.xlsx') || originalName.endsWith('.xls')) {
+                const workbook = xlsx.read(buffer, { type: 'buffer' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                // Convert to CSV string to give AI a clean format to parse
+                fileContent = xlsx.utils.sheet_to_csv(worksheet);
+                extractionMethod = 'xlsx-excel';
+            } else if (mimetype === 'text/csv' || originalName.endsWith('.csv')) {
+                fileContent = buffer.toString('utf8');
+                extractionMethod = 'raw-csv';
             } else if (mimetype.startsWith('image/')) {
                 const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
                 fileContent = text;
                 extractionMethod = 'tesseract-image-ocr';
-                logger('INFO', 'Extracted text from image (OCR)', { length: fileContent.length, extractionMethod });
+            }
+
+            if (fileContent) {
+                logger('INFO', `Extracted text from ${extractionMethod}`, {
+                    length: fileContent.length,
+                    filename: originalName
+                });
             }
         }
 
@@ -88,11 +107,11 @@ exports.generateQuestions = async (req, res) => {
         const finalContext = (context || '') + '\n' + fileContent;
 
         if (!finalContext.trim() && !category.trim()) {
-            return res.status(400).json({ message: 'Syllabus text, a file (PDF/Image), or a category is required to generate questions.' });
+            return res.status(400).json({ message: 'Syllabus text, a file (PDF/Docx/CSV/Excel/Image), or a category is required to generate questions.' });
         }
 
         // Limit count to prevent abuse or timeout
-        const questionCount = Math.min(Math.max(parseInt(count, 10) || 5, 1), 20);
+        const questionCount = Math.min(Math.max(parseInt(count, 10) || 5, 1), 50);
 
         // ── CSV Reference Integration ──────────────────────────────────────────
         let referenceBlock = '';
@@ -106,54 +125,54 @@ exports.generateQuestions = async (req, res) => {
 
                 if (samples.length > 0) {
                     const sampleText = samples.map((s, i) =>
-                        `  Example ${i + 1}:\n  Q: ${s.question}\n  A) ${s.a}  B) ${s.b}  C) ${s.c}  D) ${s.d}\n  Correct Answer: ${s.answer}`
+                        `  Example ${i + 1}:\n  Q: ${s.question}\n  A) ${s.a}  B) ${s.b}  C) ${s.c}  D) ${s.d}\n  Correct Answer Index: ${s.answer}`
                     ).join('\n\n');
 
                     referenceBlock = `
-Reference Examples from the "${matchedSection}" question bank (use these to match the style and difficulty):
+Reference Examples from the "${matchedSection}" database (match this style):
 """
 ${sampleText}
 """
 `;
-                    logger('INFO', `CSV reference injected for section: ${matchedSection}`, { samplesCount: samples.length });
-                } else {
-                    logger('INFO', `No CSV samples found for matched section "${matchedSection}". Falling back to AI-only generation.`);
+                    logger('INFO', `CSV reference injected for section: ${matchedSection}`);
                 }
-            } else {
-                logger('INFO', `No matching section in CSV for category "${category}". Falling back to AI-only generation.`);
             }
         }
         // ──────────────────────────────────────────────────────────────────────
 
-        // Build Prompt — Reference section is injected only if samples were found
+        // Build Prompt
         const contextSection = finalContext.trim()
-            ? `Context/Dataset:\n"""\n${finalContext}\n"""\n`
+            ? `Source Content/File Data:\n"""\n${finalContext}\n"""\n`
             : `Topic: ${category}\n`;
 
         const referenceInstruction = referenceBlock
-            ? `${referenceBlock}\nUsing the reference examples above to guide the style and format, `
+            ? `${referenceBlock}\nUsing these references as a guide, `
             : '';
 
-        const prompt = `You are an expert curriculum designer and exam question creator.
+        const prompt = `You are an expert curriculum designer.
 ${contextSection}
-${referenceInstruction}generate exactly ${questionCount} multiple-choice questions (MCQs) at a ${difficulty} difficulty level.
+${referenceInstruction}Extract or generate exactly ${questionCount} multiple-choice questions (MCQs) from the source content above.
+Difficulty Level: ${difficulty}
 
 Instructions:
-1. Generate exactly ${questionCount} questions.
-2. Each question must have exactly 4 options (A, B, C, D).
-3. Specify the correct answer precisely as the EXACT text of the correct option (not just the letter A, B, C, or D).
-4. Provide a very short explanation for why the answer is correct.
-5. All output must be valid JSON in the exact structure described below.
-6. Make sure the correct answer is NOT always the first option — vary its position.
+1. Return exactly ${questionCount} questions.
+2. Each question MUST have exactly 4 options.
+3. correct_answer MUST be the INDEX of the correct option (0 for the first option, 1 for second, etc.).
+4. Provide a very short explanation.
+5. Topic should be the specific sub-topic (e.g., "React Hooks", "Database Normalization").
+6. All output must be valid JSON.
 
-OUTPUT FORMAT MUST BE A STRICT JSON OBJECT containing an array named "questions":
+OUTPUT FORMAT:
 {
   "questions": [
     {
-      "question": "What is the capital of France?",
-      "options": ["London", "Paris", "Berlin", "Madrid"],
-      "correct_answer": "Paris",
-      "explanation": "Paris is the capital of France."
+      "question": "Question text here?",
+      "options": ["Option 0", "Option 1", "Option 2", "Option 3"],
+      "correct_answer": 1, 
+      "explanation": "Brief explanation why option 1 is correct.",
+      "topic": "Sub-topic name",
+      "difficulty": "${difficulty}",
+      "marks": 5
     }
   ]
 }`;
@@ -162,7 +181,7 @@ OUTPUT FORMAT MUST BE A STRICT JSON OBJECT containing an array named "questions"
             prompt,
             role: 'system',
             preferredProvider: provider,
-            temperature: 0.7,
+            temperature: 0.3,
             groqModel: 'llama-3.1-8b-instant',
             geminiModel: 'gemini-1.5-flash',
         });
@@ -175,14 +194,13 @@ OUTPUT FORMAT MUST BE A STRICT JSON OBJECT containing an array named "questions"
             questions: parsedData.questions,
             meta: {
                 providerUsed,
-                matchedSection,       // null if no CSV match (fallback used)
-                referenceUsed: !!referenceBlock,
                 extractionMethod,
+                count: parsedData.questions.length
             }
         });
 
     } catch (error) {
-        logger('ERROR', 'Error in AI question generation:', { message: error.message, error: error });
-        res.status(500).json({ message: 'Failed to generate questions using AI.', error: error.message });
+        logger('ERROR', 'Error in smart question import:', { message: error.message });
+        res.status(500).json({ message: 'Failed to process file and generate questions.', error: error.message });
     }
 };

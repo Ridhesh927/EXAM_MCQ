@@ -8,7 +8,8 @@ import {
     Layers,
     Trash2,
     Edit,
-    Clock
+    Clock,
+    BrainCircuit
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 import { useNavigate } from 'react-router-dom';
@@ -238,6 +239,9 @@ const ManageExams = () => {
                                                                 className="dropdown-item"
                                                             >
                                                                 <Clock size={16} /> {(exam.status === 'Scheduled' && (!exam.scheduled_start || new Date(exam.scheduled_start) > new Date())) ? 'Reschedule' : 'Schedule'}
+                                                            </button>
+                                                            <button onClick={() => navigate(`/teacher/exam-health/${exam.id}`)} className="dropdown-item">
+                                                                <BrainCircuit size={16} style={{ color: 'var(--accent)' }} /> <strong>Health & Insights</strong>
                                                             </button>
                                                             <div className="dropdown-divider"></div>
                                                             <button onClick={() => handleDelete(exam.id)} className="dropdown-item danger">

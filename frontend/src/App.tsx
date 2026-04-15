@@ -20,6 +20,7 @@ const CodingResults = lazy(() => import('./pages/student/CodingResults'));
 const StudentResults = lazy(() => import('./pages/student/StudentResults'));
 const Settings = lazy(() => import('./pages/student/Settings'));
 const InterviewPrepHub = lazy(() => import('./pages/student/InterviewPrepHub'));
+const JobBoard = lazy(() => import('./pages/student/JobBoard'));
 
 // Teacher Pages
 const TeacherDashboard = lazy(() => import('./pages/teacher/TeacherDashboard'));
@@ -30,6 +31,8 @@ const ManageStudents = lazy(() => import('./pages/teacher/ManageStudents'));
 const ManageTeachers = lazy(() => import('./pages/teacher/ManageTeachers'));
 const ViewResults = lazy(() => import('./pages/teacher/ViewResults'));
 const EditExam = lazy(() => import('./pages/teacher/EditExam'));
+const ExamItemAnalysis = lazy(() => import('./pages/teacher/ExamItemAnalysis'));
+const ManageJobs = lazy(() => import('./pages/teacher/ManageJobs'));
 const Landing = lazy(() => import('./pages/Landing'));
 
 const PageLoader = () => (
@@ -76,6 +79,7 @@ function App() {
             <Route path="/student/coding/:id" element={<TakeCodingRound />} />
             <Route path="/student/coding/result/:id" element={<CodingResults />} />
             <Route path="/student/results" element={<StudentResults />} />
+            <Route path="/student/jobs" element={<JobBoard />} />
             <Route path="/student/settings" element={<Settings />} />
 
             {/* Teacher Routes */}
@@ -87,6 +91,8 @@ function App() {
             <Route path="/teacher/students" element={<ManageStudents />} />
             <Route path="/admin/teachers" element={<ManageTeachers />} />
             <Route path="/teacher/results" element={<ViewResults />} />
+            <Route path="/teacher/exam-health/:id" element={<ExamItemAnalysis />} />
+            <Route path="/teacher/jobs" element={<ManageJobs />} />
             <Route path="/teacher/settings" element={<Settings userType="teacher" />} />
           </Routes>
         </Suspense>

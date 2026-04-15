@@ -99,19 +99,18 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
             const data = await response.json();
 
             if (response.ok && data.questions) {
-                // Ensure options are formatted correctly as strings for the frontend
+                // Formatting for UI preview
                 const formatted = data.questions.map((q: any) => ({
                     question: q.question,
-                    options: q.options.map((opt: string) => opt),
-                    correct_answer: q.correct_answer,
-                    marks: validated.difficulty === 'Hard' ? 4 : validated.difficulty === 'Medium' ? 2 : 1
+                    options: q.options,
+                    correct_answer: q.correct_answer, // This is now an index (0-3)
+                    marks: q.marks || (validated.difficulty === 'Hard' ? 4 : validated.difficulty === 'Medium' ? 2 : 1),
+                    topic: q.topic || validated.category || 'General'
                 }));
                 setGeneratedQuestions(formatted);
-                setReferenceUsed(data.meta?.referenceUsed ?? false);
-                setMatchedSection(data.meta?.matchedSection ?? null);
                 setProviderUsed(data.meta?.providerUsed ?? null);
             } else {
-                setError(data.message || 'Failed to generate questions. Please try again.');
+                setError(data.message || 'Failed to process file. Please ensure the file contains readable question data.');
             }
         } catch (err: any) {
             setError(err.message || 'An error occurred while connecting to the AI.');
@@ -126,14 +125,24 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
 
     const handleAddAll = () => {
         if (generatedQuestions.length > 0) {
-            onAddQuestions(generatedQuestions);
+            // Map to the format expected by CreateExam.tsx
+            const finalQuestions = generatedQuestions.map((q: any) => ({
+                text: q.question,
+                type: 'MCQ',
+                options: q.options,
+                correct: q.correct_answer, // use index directly
+                marks: q.marks,
+                topic: q.topic,
+                difficulty: q.difficulty || difficulty
+            }));
+            
+            onAddQuestions(finalQuestions);
             onClose();
             // Reset state
             setTimeout(() => {
                 setContext('');
                 setSelectedFile(null);
                 setGeneratedQuestions([]);
-                setReferenceUsed(null);
                 setMatchedSection(null);
                 setProviderUsed(null);
             }, 300);
@@ -143,10 +152,10 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
-
-            const parsed = aiUploadFileSchema.safeParse(file);
-            if (!parsed.success) {
-                setError(parsed.error.issues[0]?.message || 'Invalid file upload.');
+            
+            // Basic size check (5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                setError('File is too large. Max size is 5MB.');
                 return;
             }
 
@@ -170,7 +179,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                     <div className="modal-header">
                         <div className="header-title">
                             <Sparkles className="ai-icon" size={24} />
-                            <h2>Generate Questions with AI</h2>
+                            <h2>Smart Question Import</h2>
                         </div>
                         <button onClick={onClose} className="close-btn" aria-label="Close AI generator modal">
                             <X size={18} />
@@ -182,73 +191,63 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
 
                         {generatedQuestions.length === 0 ? (
                             <div className="generator-setup">
+                                <section className="setup-section">
+                                    <div className="section-meta">
+                                        <div className="form-group">
+                                            <label>Upload Question Paper / Syllabus</label>
+                                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                                                Supported: PDF, Word (.docx), Excel (.xlsx), CSV or Images
+                                            </p>
+                                            <div 
+                                                className={`upload-zone ${selectedFile ? 'has-file' : ''}`}
+                                                onClick={() => fileInputRef.current?.click()}
+                                            >
+                                                <input 
+                                                    type="file" 
+                                                    ref={fileInputRef} 
+                                                    onChange={handleFileChange} 
+                                                    accept=".pdf,.docx,.xlsx,.xls,.csv,image/*" 
+                                                    style={{ display: 'none' }}
+                                                />
+                                                {selectedFile ? (
+                                                    <div className="file-preview">
+                                                        <FileText size={24} />
+                                                        <div className="file-info">
+                                                            <span className="file-name">{selectedFile.name}</span>
+                                                            <span className="file-size">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</span>
+                                                        </div>
+                                                        <button 
+                                                            className="remove-file" 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedFile(null);
+                                                            }}
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="upload-placeholder">
+                                                        <Upload size={32} className="upload-icon" />
+                                                        <p>Select a file to parse</p>
+                                                        <span>Drag and drop here</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+
                                 <div className="form-group">
-                                    <label>Paste Syllabus, Notes, or Dataset Context</label>
+                                    <label>Add Additional Context (Optional)</label>
                                     <textarea
                                         className="neo-input"
-                                        placeholder="Paste the educational material here, or upload a file below. The AI will read both and generate MCQs..."
+                                        placeholder="Add specific instructions like 'Focus on Chapter 5' or paste extra text here..."
                                         value={context}
                                         onChange={(e) => setContext(e.target.value)}
-                                        rows={6}
+                                        rows={3}
                                         disabled={isGenerating}
                                     />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>Upload Syllabus (PDF or Image)</label>
-                                    <div 
-                                        className={`upload-zone ${selectedFile ? 'has-file' : ''}`}
-                                        onClick={() => fileInputRef.current?.click()}
-                                    >
-                                        <input 
-                                            type="file" 
-                                            ref={fileInputRef} 
-                                            onChange={handleFileChange} 
-                                            accept=".pdf,image/*" 
-                                            style={{ display: 'none' }}
-                                        />
-                                        {selectedFile ? (
-                                            <div className="file-preview">
-                                                {selectedFile.type === 'application/pdf' ? <FileText size={24} /> : <ImageIcon size={24} />}
-                                                <div className="file-info">
-                                                    <span className="file-name">{selectedFile.name}</span>
-                                                    <span className="file-size">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</span>
-                                                </div>
-                                                <button 
-                                                    className="remove-file" 
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedFile(null);
-                                                    }}
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <div className="upload-placeholder">
-                                                <Upload size={32} className="upload-icon" />
-                                                <p>Drop PDF/Image or click to browse</p>
-                                                <span>Max size: 5MB</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="form-group">
-                                    <label>Reference Category <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.8rem' }}>(optional — guides AI style)</span></label>
-                                    <select
-                                        className="neo-input"
-                                        value={category}
-                                        onChange={(e) => setCategory(e.target.value)}
-                                        disabled={isGenerating}
-                                    >
-                                        {REFERENCE_CATEGORIES.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.4rem', display: 'block' }}>
-                                        💡 You can also type any topic in the context box. If a category isn't in the list, AI will generate freely.
-                                    </span>
                                 </div>
 
                                 <div className="form-row">
@@ -258,9 +257,9 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                                             type="number"
                                             className="neo-input"
                                             value={count}
-                                            onChange={(e) => setCount(parseInt(e.target.value) || 1)}
+                                            onChange={(e) => setCount(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
                                             min={1}
-                                            max={20}
+                                            max={50}
                                             disabled={isGenerating}
                                         />
                                     </div>
@@ -274,80 +273,32 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                                         >
                                             <option value="Easy">Easy</option>
                                             <option value="Medium">Medium</option>
-                                            <option value="Hard">Hard</option>
+                                            <option value="High">High</option>
                                         </select>
                                     </div>
-                                </div>
-
-                                <div className="form-group">
-                                    <label>AI Provider</label>
-                                    <select
-                                        className="neo-input"
-                                        value={provider}
-                                        onChange={(e) => setProvider(e.target.value)}
-                                        disabled={isGenerating}
-                                    >
-                                        {AI_PROVIDERS.map((opt) => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
                                 </div>
 
                                 <button
                                     className="neo-btn-primary full-width generate-btn"
                                     onClick={handleGenerate}
-                                    disabled={isGenerating || (!context.trim() && !selectedFile && !category.trim())}
+                                    disabled={isGenerating || (!selectedFile && !context.trim() && !category.trim())}
                                 >
                                     {isGenerating ? (
-                                        <><Loader2 className="animate-spin" size={20} /> Generating questions...</>
+                                        <><Loader2 className="animate-spin" size={20} /> Processing Content...</>
                                     ) : (
-                                        <><Sparkles size={20} /> Generate Questions</>
+                                        <><Sparkles size={20} /> Start Smart Import</>
                                     )}
                                 </button>
                             </div>
                         ) : (
                             <div className="review-section">
                                 <div className="review-header">
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                        <h3 style={{ margin: 0 }}>Review Generated Questions ({generatedQuestions.length})</h3>
-                                        {referenceUsed !== null && (
-                                            <span style={{
-                                                fontSize: '0.75rem',
-                                                padding: '0.2rem 0.6rem',
-                                                borderRadius: '20px',
-                                                display: 'inline-block',
-                                                width: 'fit-content',
-                                                background: referenceUsed
-                                                    ? 'rgba(16, 185, 129, 0.12)'
-                                                    : 'rgba(99, 102, 241, 0.12)',
-                                                color: referenceUsed ? '#10b981' : '#818cf8',
-                                                border: `1px solid ${referenceUsed ? 'rgba(16,185,129,0.25)' : 'rgba(99,102,241,0.25)'}`
-                                            }}>
-                                                {referenceUsed
-                                                    ? `✅ Generated using "${matchedSection}" CSV reference`
-                                                    : '🤖 AI generated freely (no CSV match)'}
-                                            </span>
-                                        )}
-                                        {providerUsed && (
-                                            <span style={{
-                                                fontSize: '0.75rem',
-                                                padding: '0.2rem 0.6rem',
-                                                borderRadius: '20px',
-                                                display: 'inline-block',
-                                                width: 'fit-content',
-                                                background: 'rgba(14, 165, 233, 0.12)',
-                                                color: '#0284c7',
-                                                border: '1px solid rgba(14, 165, 233, 0.25)'
-                                            }}>
-                                                🔧 Provider used: {providerUsed}
-                                            </span>
-                                        )}
-                                    </div>
+                                    <h3 style={{ margin: 0 }}>Review Extracted Data ({generatedQuestions.length} Questions)</h3>
                                     <button
                                         className="retry-btn"
-                                        onClick={() => { setGeneratedQuestions([]); setReferenceUsed(null); setMatchedSection(null); setProviderUsed(null); }}
+                                        onClick={() => { setGeneratedQuestions([]); setSelectedFile(null); }}
                                     >
-                                        Start Over
+                                        Clear and Retry
                                     </button>
                                 </div>
 
@@ -355,11 +306,10 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                                     {generatedQuestions.map((q, index) => (
                                         <div key={index} className="generated-q-card">
                                             <div className="q-card-header">
-                                                <span className="q-num">Q{index + 1}</span>
+                                                <span className="q-num">#{index + 1} • {q.topic}</span>
                                                 <button
                                                     className="action-btn delete-btn"
                                                     onClick={() => handleRemoveQuestion(index)}
-                                                    title="Remove Question"
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
@@ -369,7 +319,7 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                                                 {q.options.map((opt: string, i: number) => (
                                                     <div
                                                         key={i}
-                                                        className={`q-opt ${q.correct_answer === opt ? 'correct-opt' : ''}`}
+                                                        className={`q-opt ${q.correct_answer === i ? 'correct-opt' : ''}`}
                                                     >
                                                         {String.fromCharCode(65 + i)}. {opt}
                                                     </div>
@@ -380,18 +330,19 @@ const AIGeneratorModal: React.FC<AIGeneratorModalProps> = ({ isOpen, onClose, on
                                 </div>
 
                                 <div className="modal-actions">
-                                    <button className="neo-btn-secondary" onClick={onClose}>Cancel</button>
+                                    <button className="neo-btn-secondary" onClick={() => { setGeneratedQuestions([]); }}>Back to Setup</button>
                                     <button
                                         className="neo-btn-primary add-all-btn"
                                         onClick={handleAddAll}
                                     >
-                                        <Plus size={20} /> Add to Exam
+                                        <Plus size={20} /> Add to Assessment
                                     </button>
                                 </div>
                             </div>
                         )}
                     </div>
                 </motion.div>
+
 
                 <style>{`
                     .ai-modal-overlay {

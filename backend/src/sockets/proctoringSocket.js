@@ -85,6 +85,25 @@ module.exports = (io) => {
             }
         });
 
+        // Rough Work Sync
+        socket.on('rough-work-update', ({ examId, userId, content }) => {
+            socket.to(`exam-${examId}`).emit('student-rough-work', { userId, content });
+        });
+
+        // Voice Intervention
+        socket.on('voice-intervention', ({ studentId, message }) => {
+            const sockets = io.sockets.adapter.rooms.get(`exam-${socket.examId}`);
+            if (sockets) {
+                for (const socketId of sockets) {
+                    const s = io.sockets.sockets.get(socketId);
+                    if (s && s.userId === studentId && s.role === 'student') {
+                        io.to(socketId).emit('voice-alert', { message });
+                        break;
+                    }
+                }
+            }
+        });
+
         socket.on('disconnect', async () => {
             if (socket.role === 'student' && socket.sessionId) {
                 console.log(`Student ${socket.userId} disconnected from session ${socket.sessionId}`);

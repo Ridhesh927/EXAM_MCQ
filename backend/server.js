@@ -78,6 +78,7 @@ const examRoutes = require('./src/routes/examRoutes');
 const aiRoutes = require('./src/routes/aiRoutes');
 const interviewRoutes = require('./src/routes/interviewRoutes');
 const codingRoutes = require('./src/routes/codingRoutes');
+const jobRoutes = require('./src/routes/jobRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
 
 app.use('/api/auth', authRoutes);
@@ -85,6 +86,7 @@ app.use('/api/exams', examRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/interview', interviewRoutes);
 app.use('/api/coding', codingRoutes);
+app.use('/api/jobs', jobRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // Initialize Database

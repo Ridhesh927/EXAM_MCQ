@@ -97,6 +97,7 @@ exports.uploadResume = async (req, res) => {
         let parsedRoles = [];
         try {
             const { data: AIResponse } = await generateJson({
+                taskType: 'mcq_gen',
                 prompt: summarizePrompt,
                 role: 'user',
                 preferredProvider: 'auto',
@@ -255,6 +256,7 @@ exports.generateInterview = async (req, res) => {
 
             try {
                 const { data: content } = await generateJson({
+                    taskType: 'mcq_gen',
                     prompt,
                     role: 'user',
                     preferredProvider: 'groq',
@@ -502,6 +504,7 @@ const questionStore = require('../utils/questionStore');
                 const levelB = includeHard ? 'Hard'   : 'Medium';
                 const codingPrompt = `You are a senior software engineer. Generate 2 classic DSA algorithm problems. One ${levelA}, one ${levelB}. Return ONLY JSON.`;
                 const { data: codingParsed } = await generateJson({
+                    taskType: 'coding',
                     prompt: codingPrompt,
                     role: 'user',
                     preferredProvider: 'groq',
@@ -703,6 +706,7 @@ exports.submitInterview = async (req, res) => {
         let feedbackText = "Feedback generation failed.";
         try {
             const { content } = await generateText({
+                taskType: 'reporting',
                 prompt,
                 role: 'system',
                 preferredProvider: 'auto',

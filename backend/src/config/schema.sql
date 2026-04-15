@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS exam_questions (
     correct_answer INT NOT NULL, -- Index 0-3
     marks INT DEFAULT 1,
     difficulty ENUM('Easy', 'Medium', 'High') DEFAULT 'Medium',
+    topic VARCHAR(255) DEFAULT 'General',
     FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE
 );
 
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS exam_results (
     score INT NOT NULL,
     total_questions INT NOT NULL,
     correct_answers INT NOT NULL,
+    total_marks INT NOT NULL DEFAULT 0,
     completion_time INT NOT NULL, -- in seconds
     submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
@@ -89,6 +91,7 @@ CREATE TABLE IF NOT EXISTS exam_sessions (
     start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP NULL,
     warnings_count INT DEFAULT 0,
+    is_suspended BOOLEAN DEFAULT FALSE,
     status ENUM(
         'active',
         'completed',
@@ -108,6 +111,25 @@ CREATE TABLE IF NOT EXISTS exam_warnings (
     FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE
 );
 
+-- Session Actions Audit Trail (warn/suspend/terminate/system actions)
+CREATE TABLE IF NOT EXISTS exam_session_actions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    session_id INT NOT NULL,
+    exam_id INT NOT NULL,
+    student_id INT NOT NULL,
+    action_type VARCHAR(100) NOT NULL,
+    reason TEXT NULL,
+    actioned_by INT NULL,
+    actioned_by_role ENUM('teacher', 'student', 'system') DEFAULT 'system',
+    metadata JSON DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_exam_session_actions_session (session_id),
+    INDEX idx_exam_session_actions_exam_student (exam_id, student_id),
+    FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE,
+    FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
+);
+
 -- Individual Question Responses (for detailed tracking)
 CREATE TABLE IF NOT EXISTS student_responses (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -118,6 +140,23 @@ CREATE TABLE IF NOT EXISTS student_responses (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES exam_sessions (id) ON DELETE CASCADE,
     FOREIGN KEY (question_id) REFERENCES exam_questions (id) ON DELETE CASCADE
+);
+
+-- Adaptive Learning Recommendations generated post-submission
+CREATE TABLE IF NOT EXISTS exam_learning_recommendations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    result_id INT NOT NULL UNIQUE,
+    exam_id INT NOT NULL,
+    student_id INT NOT NULL,
+    weak_topics JSON DEFAULT NULL,
+    practice_quiz JSON DEFAULT NULL,
+    class_remediation JSON DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_learning_exam_student (exam_id, student_id),
+    FOREIGN KEY (result_id) REFERENCES exam_results (id) ON DELETE CASCADE,
+    FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+    FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE
 );
 
 -- Notifications Table
