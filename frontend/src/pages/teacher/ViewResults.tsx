@@ -93,7 +93,10 @@ const ViewResults = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('All');
     const [exporting, setExporting] = useState<ExportFormat | null>(null);
+    const [selectedScript, setSelectedScript] = useState<any>(null);
+    const [loadingScript, setLoadingScript] = useState(false);
 
     useEffect(() => {
         fetchResultsAndAnalytics();
@@ -132,15 +135,43 @@ const ViewResults = () => {
         }
     };
 
+    const getStatus = (score: number, total: number) => {
+        const percentage = (score / Math.max(total, 1)) * 100;
+        if (percentage >= 75) return 'Distinction';
+        if (percentage >= 60) return 'Merit';
+        if (percentage >= 35) return 'Pass';
+        return 'Fail';
+    };
+
     const filteredResults = useMemo(() => {
         const query = searchTerm.trim().toLowerCase();
-        if (!query) return results;
-        return results.filter((result) =>
-            result.student_name?.toLowerCase().includes(query)
-            || result.student_email?.toLowerCase().includes(query)
-            || result.exam_title?.toLowerCase().includes(query)
-        );
-    }, [results, searchTerm]);
+        return results.filter((result) => {
+            const matchesSearch = !query || (
+                result.student_name?.toLowerCase().includes(query)
+                || result.student_email?.toLowerCase().includes(query)
+                || result.exam_title?.toLowerCase().includes(query)
+            );
+            
+            const status = getStatus(result.score, result.total_marks || 1);
+            const matchesStatus = statusFilter === 'All' || status === statusFilter;
+            
+            return matchesSearch && matchesStatus;
+        });
+    }, [results, searchTerm, statusFilter]);
+
+    const fetchScript = async (resultId: number) => {
+        try {
+            setLoadingScript(true);
+            const res = await apiFetch(`/api/exams/teacher/result/${resultId}/script`);
+            const data = await res.json();
+            setSelectedScript(data);
+        } catch (err) {
+            console.error('Failed to fetch script:', err);
+            alert('Could not load exam script.');
+        } finally {
+            setLoadingScript(false);
+        }
+    };
 
     const handleExport = async (format: ExportFormat) => {
         try {
@@ -169,13 +200,6 @@ const ViewResults = () => {
         }
     };
 
-    const getStatus = (score: number, total: number) => {
-        const percentage = (score / Math.max(total, 1)) * 100;
-        if (percentage >= 75) return 'Distinction';
-        if (percentage >= 60) return 'Merit';
-        if (percentage >= 35) return 'Pass';
-        return 'Fail';
-    };
 
     return (
         <DashboardLayout userType="teacher">
@@ -353,7 +377,7 @@ const ViewResults = () => {
                         </div>
 
                         <div className="results-explorer neo-card">
-                            <div className="explorer-header">
+                            <div className="explorer-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
                                 <div className="search-box">
                                     <Search size={18} />
                                     <input
@@ -363,67 +387,156 @@ const ViewResults = () => {
                                         onChange={(event) => setSearchTerm(event.target.value)}
                                     />
                                 </div>
-                                <button className="neo-btn-secondary disabled-filter" disabled>
-                                    <Filter size={18} />
-                                    Filters
-                                </button>
+                                <div className="filter-select" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                    <Filter size={18} className="text-muted" />
+                                    <select 
+                                        className="neo-input" 
+                                        style={{ width: 'auto', padding: '0.4rem 1rem' }}
+                                        value={statusFilter}
+                                        onChange={(e) => setStatusFilter(e.target.value)}
+                                    >
+                                        <option value="All">All Status</option>
+                                        <option value="Distinction">Distinction</option>
+                                        <option value="Merit">Merit</option>
+                                        <option value="Pass">Pass</option>
+                                        <option value="Fail">Fail</option>
+                                    </select>
+                                </div>
                             </div>
 
-                            {filteredResults.length === 0 ? (
-                                <div className="empty-state">
-                                    <p>No results found for the current search.</p>
-                                </div>
-                            ) : (
-                                <table className="results-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Scholar Identity</th>
-                                            <th>Assessment Module</th>
-                                            <th>Result Percentage</th>
-                                            <th>Status Mapping</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredResults.map((res) => {
-                                            const percentage = Math.round((res.score / (res.total_marks || 1)) * 100);
-                                            const status = getStatus(res.score, res.total_marks || 1);
+                            <div className="table-responsive">
+                                {filteredResults.length === 0 ? (
+                                    <div className="empty-state">
+                                        <p>No results found for the current filters.</p>
+                                    </div>
+                                ) : (
+                                    <table className="results-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Scholar Identity</th>
+                                                <th>Assessment Module</th>
+                                                <th>Result Percentage</th>
+                                                <th>Status Mapping</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredResults.map((res) => {
+                                                const percentage = Math.round((res.score / (res.total_marks || 1)) * 100);
+                                                const status = getStatus(res.score, res.total_marks || 1);
 
-                                            return (
-                                                <tr key={res.id}>
-                                                    <td>
-                                                        <div className="student-profile">
-                                                            <div className="avatar-small">{res.student_name.charAt(0).toUpperCase()}</div>
-                                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                                <span>{res.student_name}</span>
-                                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{res.student_email}</span>
+                                                return (
+                                                    <tr key={res.id}>
+                                                        <td>
+                                                            <div className="student-profile">
+                                                                <div className="avatar-small">{res.student_name.charAt(0).toUpperCase()}</div>
+                                                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                                    <span>{res.student_name}</span>
+                                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{res.student_email}</span>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    </td>
-                                                    <td>{res.exam_title}</td>
-                                                    <td className="score-cell">
-                                                        <div className="score-bar-bg">
-                                                            <div className="score-bar-fill" style={{ width: `${percentage}%` }}></div>
-                                                        </div>
-                                                        <span>{percentage}%</span>
-                                                    </td>
-                                                    <td>
-                                                        <span className={`status-tag ${status.toLowerCase()}`}>{status}</span>
-                                                    </td>
-                                                    <td>
-                                                        <button className="icon-btn-text">
-                                                            View Scripts
-                                                            <ArrowRight size={14} />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            )}
+                                                        </td>
+                                                        <td>{res.exam_title}</td>
+                                                        <td className="score-cell">
+                                                            <div className="score-bar-bg">
+                                                                <div className="score-bar-fill" style={{ width: `${percentage}%` }}></div>
+                                                            </div>
+                                                            <span>{percentage}%</span>
+                                                        </td>
+                                                        <td>
+                                                            <span className={`status-tag ${status.toLowerCase()}`}>{status}</span>
+                                                        </td>
+                                                        <td>
+                                                            <button 
+                                                                className="icon-btn-text"
+                                                                onClick={() => fetchScript(res.id)}
+                                                                disabled={loadingScript}
+                                                            >
+                                                                {loadingScript ? 'Opening...' : 'View Scripts'}
+                                                                <ArrowRight size={14} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
                         </div>
                     </>
+                )}
+
+                {selectedScript && (
+                    <div className="modal-overlay" onClick={() => setSelectedScript(null)}>
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="modal-container" 
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="modal-header">
+                                <div>
+                                    <h2>{selectedScript.result.exam_title} - Script</h2>
+                                    <p className="text-muted">{selectedScript.result.username} ({selectedScript.result.email})</p>
+                                </div>
+                                <button className="close-btn" onClick={() => setSelectedScript(null)}>&times;</button>
+                            </div>
+                            <div className="modal-body script-body">
+                                <div className="script-stats">
+                                    <div className="stat-min">
+                                        <span>Score</span>
+                                        <strong>{selectedScript.result.score}/{selectedScript.result.total_marks}</strong>
+                                    </div>
+                                    <div className="stat-min">
+                                        <span>Percentage</span>
+                                        <strong>{Math.round((selectedScript.result.score / selectedScript.result.total_marks) * 100)}%</strong>
+                                    </div>
+                                    <div className="stat-min">
+                                        <span>Accuracy</span>
+                                        <strong>{selectedScript.result.correct_answers}/{selectedScript.result.total_questions} Qs</strong>
+                                    </div>
+                                </div>
+
+                                <div className="questions-review">
+                                    {selectedScript.questions.map((q: any, idx: number) => (
+                                        <div key={q.question_id} className={`question-review-card ${q.is_correct ? 'correct' : 'incorrect'} ${q.selected_option === null ? 'skipped' : ''}`}>
+                                            <div className="q-review-header">
+                                                <span className="q-num">Q{idx + 1}</span>
+                                                <span className="q-topic">{q.topic}</span>
+                                                <span className="q-marks">{q.marks} pt</span>
+                                            </div>
+                                            <p className="q-text">{q.question}</p>
+                                            <div className="options-review">
+                                                {q.options.map((opt: string, optIdx: number) => {
+                                                    let className = "opt-review";
+                                                    if (optIdx === q.correct_answer) className += " correct-opt";
+                                                    if (optIdx === q.selected_option && !q.is_correct) className += " wrong-opt";
+                                                    
+                                                    return (
+                                                        <div key={optIdx} className={className}>
+                                                            <div className="opt-indicator"></div>
+                                                            <span>{opt}</span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="q-review-footer">
+                                                {q.selected_option === null ? (
+                                                    <span className="badge skipped">Skipped</span>
+                                                ) : q.is_correct ? (
+                                                    <span className="badge correct">Correct</span>
+                                                ) : (
+                                                    <span className="badge incorrect">Incorrect</span>
+                                                )}
+                                                <span className="time-spent">Time Spent: {q.time_spent || 0}s</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
                 )}
 
                 <style>{`
@@ -487,7 +600,6 @@ const ViewResults = () => {
           .explorer-header { padding: 1.2rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
           .search-box { display: flex; align-items: center; gap: 0.9rem; color: var(--text-muted); flex: 1; min-width: 240px; max-width: 460px; }
           .search-box input { background: none; color: var(--text-primary); width: 100%; border: none; outline: none; }
-          .disabled-filter { opacity: 0.7; cursor: not-allowed; }
           
           .results-table { width: 100%; border-collapse: collapse; }
           .results-table th { text-align: left; padding: 1rem 1.5rem; background: var(--surface-low); font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -515,6 +627,50 @@ const ViewResults = () => {
           @media (max-width: 980px) {
             .analytics-insights-grid { grid-template-columns: 1fr; }
             .insight-card.full-width { grid-column: auto; }
+          }
+
+          .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 2rem; }
+          .modal-container { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 100%; max-width: 900px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
+          .modal-header { padding: 1.5rem 2rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; }
+          .modal-header h2 { margin: 0; font-size: 1.5rem; }
+          .close-btn { background: none; border: none; font-size: 2rem; color: var(--text-muted); cursor: pointer; }
+          .modal-body { padding: 2rem; overflow-y: auto; flex: 1; }
+          
+          .script-stats { display: flex; gap: 2rem; margin-bottom: 2rem; background: var(--surface-low); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border); }
+          .stat-min { display: flex; flex-direction: column; gap: 0.25rem; }
+          .stat-min span { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; }
+          .stat-min strong { font-size: 1.25rem; font-family: var(--font-display); }
+
+          .questions-review { display: flex; flex-direction: column; gap: 1.5rem; }
+          .question-review-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.5rem; border-left: 4px solid var(--border); }
+          .question-review-card.correct { border-left-color: #10b981; background: rgba(16, 185, 129, 0.02); }
+          .question-review-card.incorrect { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.02); }
+          .question-review-card.skipped { border-left-color: #6b7280; }
+
+          .q-review-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; font-size: 0.82rem; }
+          .q-num { font-weight: 700; color: var(--accent); }
+          .q-topic { padding: 0.2rem 0.6rem; background: var(--surface-high); border-radius: 4px; color: var(--text-secondary); }
+          .q-marks { margin-left: auto; font-weight: 600; }
+          .q-text { font-size: 1.1rem; font-weight: 500; margin-bottom: 1.5rem; }
+
+          .options-review { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; }
+          .opt-review { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
+          .opt-indicator { width: 12px; height: 12px; border: 2px solid var(--border); border-radius: 50%; flex-shrink: 0; }
+          .correct-opt { border-color: #10b981; background: rgba(16, 185, 129, 0.1); color: #10b981; }
+          .correct-opt .opt-indicator { border-color: #10b981; background: #10b981; }
+          .wrong-opt { border-color: #ef4444; background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+          .wrong-opt .opt-indicator { border-color: #ef4444; background: #ef4444; }
+          
+          .q-review-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 1rem; }
+          .badge { padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+          .badge.correct { background: #10b981; color: white; }
+          .badge.incorrect { background: #ef4444; color: white; }
+          .badge.skipped { background: #6b7280; color: white; }
+          .time-spent { font-size: 0.75rem; color: var(--text-muted); }
+
+          @media (max-width: 768px) {
+            .options-review { grid-template-columns: 1fr; }
+            .script-stats { flex-direction: column; gap: 1rem; }
           }
         `}</style>
             </div>

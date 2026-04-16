@@ -14,6 +14,7 @@ router.get('/teacher/stats', authMiddleware, roleMiddleware(['teacher']), examCo
 router.get('/teacher/analytics', authMiddleware, roleMiddleware(['teacher']), examController.getTeacherAnalytics);
 router.get('/teacher/results', authMiddleware, roleMiddleware(['teacher']), examController.getTeacherResults);
 router.get('/teacher/results/export', authMiddleware, roleMiddleware(['teacher']), examController.exportTeacherResults);
+router.get('/teacher/result/:resultId/script', authMiddleware, roleMiddleware(['teacher']), examController.getResultScript);
 router.get('/teacher/details/:id', authMiddleware, roleMiddleware(['teacher']), examController.getTeacherExamDetails);
 router.put('/teacher/edit/:id', authMiddleware, roleMiddleware(['teacher']), examController.updateExam);
 router.put('/teacher/schedule/:id', authMiddleware, roleMiddleware(['teacher']), examController.scheduleExam);

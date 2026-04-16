@@ -1111,7 +1111,6 @@ exports.submitExam = async (req, res) => {
             resultId: result.insertId,
             recommendations
         });
-        res.json({ message: 'Exam submitted successfully', score, resultId: result.insertId });
     } catch (error) {
         console.error('[SUBMIT_EXAM_ERROR]', error);
         logger('SUBMIT_EXAM_ERROR', `Error submitting exam ID ${req.body?.examId}`, { error: error.message });
@@ -1870,6 +1869,7 @@ exports.getStudentResults = async (req, res) => {
                 elr.class_remediation
             FROM exam_results er
             JOIN exams e ON er.exam_id = e.id
+            LEFT JOIN exam_learning_recommendations elr ON er.id = elr.result_id
             WHERE er.student_id = ?
             ORDER BY er.submitted_at DESC
         `, [studentId]);
@@ -2047,5 +2047,48 @@ exports.saveExamSnapshot = async (req, res) => {
     } catch (error) {
         console.error('Error saving snapshot:', error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+exports.getResultScript = async (req, res) => {
+    try {
+        const { resultId } = req.params;
+        
+        // 1. Get the result details with student info
+        const [results] = await pool.query(
+            `SELECT er.*, u.username, u.email, e.title as exam_title 
+             FROM exam_results er
+             JOIN users u ON er.student_id = u.id
+             JOIN exams e ON er.exam_id = e.id
+             WHERE er.id = ?`,
+            [resultId]
+        );
+
+        if (results.length === 0) {
+            return res.status(404).json({ error: "Result not found" });
+        }
+
+        const resultRecord = results[0];
+
+        // 2. Get the student responses joined with questions
+        const [responses] = await pool.query(
+            `SELECT sr.*, q.question, q.options, q.correct_answer, q.topic, q.marks
+             FROM student_responses sr
+             JOIN exam_questions q ON sr.question_id = q.id
+             WHERE sr.result_id = ?
+             ORDER BY q.id ASC`,
+            [resultId]
+        );
+
+        res.json({
+            result: resultRecord,
+            questions: responses.map(r => ({
+                ...r,
+                options: JSON.parse(r.options)
+            }))
+        });
+    } catch (error) {
+        console.error("GET_SCRIPT_ERROR", error);
+        res.status(500).json({ error: "Failed to fetch exam script" });
     }
 };
