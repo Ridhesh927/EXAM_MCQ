@@ -596,7 +596,11 @@ exports.getTeacherAnalytics = async (req, res) => {
                 GROUP BY exam_id, student_id
              ) sw ON sw.exam_id = er.exam_id AND sw.student_id = er.student_id
              WHERE e.is_deleted = FALSE${teacherScopeSql}
-             GROUP BY warning_band
+             GROUP BY CASE
+                WHEN COALESCE(sw.warnings_count, 0) = 0 THEN 'No Warnings'
+                WHEN COALESCE(sw.warnings_count, 0) BETWEEN 1 AND 2 THEN '1-2 Warnings'
+                ELSE '3+ Warnings'
+            END
              ORDER BY FIELD(warning_band, 'No Warnings', '1-2 Warnings', '3+ Warnings')`,
             teacherScopeParams
         );
@@ -611,7 +615,7 @@ exports.getTeacherAnalytics = async (req, res) => {
              JOIN exam_questions eq ON sr.question_id = eq.id
              JOIN exams e ON es.exam_id = e.id
              WHERE e.is_deleted = FALSE${teacherScopeSql}
-             GROUP BY topic
+             GROUP BY COALESCE(NULLIF(eq.topic, ''), e.subject, 'General')
              HAVING attempts > 0
              ORDER BY attempts DESC`,
             teacherScopeParams
