@@ -1,9 +1,39 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, BookCheck, ArrowRight } from 'lucide-react';
+import { BookCheck, ArrowRight } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
-import { MOCK_STATS, MOCK_EXAMS } from '../../utils/mockData';
+import { useNavigate } from 'react-router-dom';
+import { getToken } from '../../utils/auth';
+import { DashboardStatsSkeleton } from '../../components/Skeleton';
+import './StudentDashboard.css';
+
+import AvailableExams from './AvailableExams';
 
 const StudentDashboard = () => {
+  const navigate = useNavigate();
+  const [exams, setExams] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const token = getToken('student');
+        const response = await fetch('http://localhost:5000/api/exams/student/available', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.exams) {
+          setExams(data.exams);
+        }
+      } catch (error) {
+        console.error('Failed to fetch exams', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
   return (
     <DashboardLayout userType="student">
       <div className="dashboard-page">
@@ -18,57 +48,42 @@ const StudentDashboard = () => {
           </motion.div>
         </header>
 
-        <div className="stats-grid">
-          {[
-            { label: 'Exams Finalized', value: MOCK_STATS.examsTaken, icon: <BookCheck />, color: 'var(--accent)' },
-          ].map((stat, i) => (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="neo-card stat-card"
-            >
-              <div className="stat-icon" style={{ color: stat.color }}>{stat.icon}</div>
-              <div className="stat-content">
-                <span className="stat-label">{stat.label}</span>
-                <span className="stat-value">{stat.value}</span>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
-        <section className="dashboard-section">
-          <div className="section-header">
-            <h2>Priority Examinations</h2>
-            <button className="text-btn">View All <ArrowRight size={16} /></button>
-          </div>
-
-          <div className="exam-quick-list">
-            {MOCK_EXAMS.slice(0, 2).map((exam, i) => (
+        {loading ? (
+          <DashboardStatsSkeleton />
+        ) : (
+          <div className="stats-grid">
+            {[
+              { label: 'Exams Available', value: exams.length, icon: <BookCheck />, color: 'var(--accent)' },
+            ].map((stat, i) => (
               <motion.div
-                key={exam.id}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 + (i * 0.1) }}
-                className="neo-card exam-card-horizontal"
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="neo-card stat-card"
               >
-                <div className="exam-info">
-                  <span className="subject-tag">{exam.subject}</span>
-                  <h3>{exam.title}</h3>
-                  <p className="text-muted">{exam.description}</p>
-                </div>
-                <div className="exam-meta">
-                  <div className="meta-item">
-                    <Clock size={16} />
-                    <span>{exam.duration} Minutes</span>
-                  </div>
-                  <button className="neo-btn-primary">Initiate</button>
+                <div className="stat-icon" style={{ color: stat.color }}>{stat.icon}</div>
+                <div className="stat-content">
+                  <span className="stat-label">{stat.label}</span>
+                  <span className="stat-value">{stat.value}</span>
                 </div>
               </motion.div>
             ))}
           </div>
+        )}
+
+        <section className="dashboard-section">
+          <div className="section-header">
+            <h2>Priority Examinations</h2>
+            <button className="text-btn" onClick={() => navigate('/student/exams')}>View All <ArrowRight size={16} /></button>
+          </div>
+
+          <div className="exam-quick-list">
+            <AvailableExams standalone={false} />
+          </div>
         </section>
+
+
 
         <style>{`
           .dashboard-page {

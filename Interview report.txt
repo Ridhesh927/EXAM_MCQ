@@ -1,0 +1,60 @@
+# Project: Writer's AI Console (AI Chatbot)
+## Interview Preparation Report
+
+This report outlines the technical stack, key concepts, and rationale behind the architectural choices made for the Writer's AI Console project. Use this as a reference to explain the project during your interview.
+
+---
+
+### 1. FRONTEND: React.js Ecosystem
+
+#### Core Concepts Explanations:
+*   **React Components**: 
+    *   **What we used**: We built the user interface using functional components (e.g., `StorySetup`, `PromptCard`, `DashboardLayout`, `TakeExam`).
+    *   **Why we used it**: Components allow us to break down the UI into modular, reusable, and independent pieces. This keeps the codebase DRY (Don't Repeat Yourself), makes it highly maintainable, and allows for clean separation of concerns visually.
+*   **`useState` Hook**: 
+    *   **What we used**: Used to manage localized state within components, such as handling form inputs for user login, tracking the user's current chat message input, and managing loading flags while awaiting AI responses.
+    *   **Why we used it**: `useState` triggers React to re-render only the specific component when data changes, creating a highly reactive user experience without needing page reloads.
+*   **`useEffect` Hook**: 
+    *   **What we used**: Used for side effects, such as fetching a user's conversation history when the Dashboard or History page loads, or verifying existing JWT tokens on initial app load.
+    *   **Why we used it**: It synchronizes our React components with external systems (like backend API calls) and ensures these operations happen at the correct time in the component's lifecycle (e.g., strictly on component mount).
+*   **Context API (`useContext`)**:
+    *   **What we used**: Implemented global state management using `AuthContext` (for user session/login state), `HistoryContext` (for managing chat histories globally), and `ThemeContext` (for Light/Dark mode).
+    *   **Why we used it**: Replaced complex prop-drilling by providing a centralized way to broadcast data to many components at different nesting levels seamlessly.
+
+#### Other Key Frontend Technologies:
+*   **Vite**: **Why**: Used instead of Create React App for vastly faster local development server startup via native ES modules and near-instant Hot Module Replacement (HMR).
+*   **React Router DOM**: **Why**: Handled client-side routing to give a fast, seamless Single Page Application (SPA) experience.
+*   **Tailwind CSS**: **Why**: Used for rapid, utility-first styling to ensure a consistent, responsive, and modern user interface without writing massive custom CSS files.
+*   **Framer Motion & Lucide React**: **Why**: `Framer Motion` provided smooth, professional micro-animations for UI transitions, while `Lucide React` provided a clean, modern iconography set.
+
+---
+
+### 2. BACKEND: Node.js, Express & TypeScript
+
+#### Core Concepts Explanations:
+*   **Node.js Runtime**:
+    *   **What we used**: The core execution environment for our backend API.
+    *   **Why we used it**: Node.js uses an asynchronous, non-blocking I/O model. This is critical for our application because the server has to wait for responses from external AI Providers (OpenAI/Gemini); an asynchronous model allows Node to handle other user requests efficiently without blocking the thread while waiting for the AI inference.
+*   **Express.js Framework**:
+    *   **What we used**: Handles our RESTful API routing (e.g., `/api/auth`, `/api/conversations`) and HTTP middleware.
+    *   **Why we used it**: It simplifies building robust APIs quickly. It handles middleware cleanly, such as our `authMiddleware.ts` which intercepts and verifies JWT tokens before letting users access protected routes.
+
+#### Other Key Backend Technologies:
+*   **TypeScript**:
+    *   **Why we used it**: Added static typing to the entire monorepo. This caught numerous errors at compile-time instead of run-time, auto-documented expected shapes (like User or Message objects), and massively improved IDE autocomplete.
+*   **Prisma ORM & MySQL**: 
+    *   **Why we used it**: We stored data in MySQL because our entities (`User`, `PrePrompt`, `Conversation`, `Message`) have strictly structured relational links (e.g., a Conversation has many Messages). Prisma was chosen as the ORM because it provides end-to-end type safety. Updating the Prisma schema automatically generated TypeScript types that matched our database perfectly.
+*   **JSON Web Tokens (JWT) & BcryptJS**: 
+    *   **Why we used it**: For secure, stateless authentication. `BcryptJS` heavily hashes user passwords before database storage. `JWT` allows us to securely identify users across HTTP requests without storing session state in server memory, meaning the backend can scale easily.
+*   **AI Integration (OpenAI & Gemini SDKs)**:
+    *   **Why we used it**: The core brain of the platform. We implemented an abstraction layer (`aiService.ts`) to programmatically interface with different Large Language Models depending on user or system needs, driving the primary chat interface and prompt evaluation features.
+
+---
+
+### 3. "Why Did We Choose This Stack?" (Summary Pitch for Interviewer)
+
+"We built this workspace using a **Modern TypeScript MERN-like stack (React, Node, Express, replacing MongoDB with MySQL/Prisma)**. We chose **TypeScript** across the entire stack because having a shared language and shared type definitions between the frontend and backend significantly reduced bugs and accelerated development.
+
+For the frontend, **React** combined with **Tailwind CSS** allowed us to build a highly responsive and maintainable chat user interface. We specifically leveraged React's **Context API** to manage complex global states like User Sessions and Chat Histories without the heavy boilerplate of Redux.
+
+On the backend, **Node.js** was crucial because its non-blocking architecture is perfectly suited for managing network requests, which happen constantly when communicating with the **OpenAI/Gemini APIs**. We opted for a relational **MySQL** database managed via **Prisma ORM** because it gave us strict data integrity for user conversations and perfect, auto-generated TypeScript synchronization for our robust backend logic."

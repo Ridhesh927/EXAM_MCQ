@@ -1,133 +1,187 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { UserPlus, Eye, EyeOff } from 'lucide-react';
+
+
 
 const Register = () => {
-    const [showPassword, setShowPassword] = useState(false);
+  return (
+    <div className="auth-page">
 
-    return (
-        <div className="auth-page">
-            <div className="auth-side-decor">
-                <motion.div
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.8 }}
-                    className="auth-brand-content"
-                >
-                    <h1>Join the<br />Academy</h1>
-                    <p>Begin your journey of academic excellence. Create your student credentials to access registered examinations.</p>
-                </motion.div>
+
+      <div className="auth-form-container">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          className="auth-title"
+        >
+          <h1>Online Exam Portal</h1>
+        </motion.div>
+
+        <div className="auth-card-wrapper">
+          <div className="auth-card-border-anim"></div>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="neo-card auth-card"
+          >
+            <div className="auth-header">
+              <h2>Registration Disabled</h2>
+              <p className="text-secondary">Contact your administrator for account creation.</p>
             </div>
 
-            <div className="auth-form-container">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: 0.2 }}
-                    className="neo-card auth-card"
-                >
-                    <div className="auth-header">
-                        <h2>Enrollment</h2>
-                        <p className="text-secondary">Register your academic profile.</p>
-                    </div>
-
-                    <form className="auth-form">
-                        <div className="form-row">
-                            <div className="form-group flex-1">
-                                <label>Full Name</label>
-                                <input type="text" className="neo-input" placeholder="e.g. John Doe" />
-                            </div>
-                            <div className="form-group flex-1">
-                                <label>PRN Number</label>
-                                <input type="text" className="neo-input" placeholder="ID Number" />
-                            </div>
-                        </div>
-
-                        <div className="form-group">
-                            <label>Institutional Email</label>
-                            <input type="email" className="neo-input" placeholder="scholar@academy.edu" />
-                        </div>
-
-                        <div className="form-group">
-                            <label>Password</label>
-                            <div className="password-input-wrapper">
-                                <input
-                                    type={showPassword ? "text" : "password"}
-                                    className="neo-input"
-                                    placeholder="••••••••"
-                                />
-                                <button
-                                    type="button"
-                                    className="password-toggle"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                >
-                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            </div>
-                        </div>
-
-                        <button type="submit" className="neo-btn-primary auth-submit">
-                            Initialize Profile <UserPlus size={18} />
-                        </button>
-                    </form>
-
-                    <div className="auth-footer">
-                        <p>Already have credentials? <Link to="/login">Sign In</Link></p>
-                    </div>
-                </motion.div>
+            <div className="registration-notice">
+              <div className="notice-icon">🔒</div>
+              <h3>Public Registration Not Available</h3>
+              <p>
+                For security reasons, public registration has been disabled.
+                Only authorized administrators can create new accounts.
+              </p>
+              <div className="notice-info">
+                <h4>To get an account:</h4>
+                <ul>
+                  <li>Contact your teacher or system administrator</li>
+                  <li>Provide your full name, email, and PRN number (for students)</li>
+                  <li>Wait for your account to be created</li>
+                  <li>You will receive your login credentials</li>
+                </ul>
+              </div>
             </div>
 
-            <style>{`
+            <div className="auth-footer">
+              <p>Already have credentials? <Link to="/login">Sign In</Link></p>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+
+      <style>{`
         .auth-page {
           display: flex;
           min-height: 100vh;
           width: 100%;
-        }
-
-        .auth-side-decor {
-          flex: 1;
-          display: flex;
+          background: var(--bg);
+          position: relative;
+          overflow: hidden;
           align-items: center;
           justify-content: center;
-          padding: 4rem;
-          background: var(--surface-low);
-          border-right: 1px solid var(--border);
-          position: relative;
+        }
+
+        .auth-background {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
           overflow: hidden;
         }
 
-        .auth-side-decor::after {
-          content: "";
+        .glow-circle {
           position: absolute;
-          inset: 0;
-          background: radial-gradient(circle at 70% 30%, var(--accent-soft), transparent 70%);
-          opacity: 0.1;
+          border-radius: 50%;
+          filter: blur(80px);
+          opacity: 0.15;
+          animation: float 20s infinite alternate;
         }
 
-        .auth-brand-content h1 {
-          font-size: clamp(3rem, 10vw, 6rem);
-          margin-bottom: 2rem;
-          color: var(--accent);
+        .glow-1 {
+          width: 400px;
+          height: 400px;
+          background: var(--accent);
+          top: -100px;
+          left: -100px;
         }
 
-        .auth-brand-content p {
-          max-width: 400px;
-          font-size: 1.25rem;
-          color: var(--text-secondary);
+        .glow-2 {
+          width: 500px;
+          height: 500px;
+          background: var(--success);
+          bottom: -150px;
+          right: -100px;
+          animation-delay: -5s;
+        }
+
+        .glow-3 {
+          width: 300px;
+          height: 300px;
+          background: var(--accent);
+          top: 40%;
+          right: 20%;
+          animation-delay: -10s;
+        }
+
+        @keyframes float {
+          0% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(50px, 30px) scale(1.1); }
+          100% { transform: translate(-20px, 60px) scale(0.9); }
         }
 
         .auth-form-container {
-          flex: 1;
+          position: relative;
+          z-index: 1;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
           padding: 2rem;
+          width: 100%;
+          gap: 2rem;
+        }
+
+        .auth-title {
+          text-align: center;
+          color: var(--text-primary);
+        }
+
+        .auth-title h1 {
+          font-family: var(--font-display);
+          font-size: clamp(2rem, 5vw, 3.5rem);
+          margin-bottom: 0.5rem;
+          letter-spacing: -0.02em;
+        }
+
+        .auth-title p {
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.2em;
+          font-size: 0.875rem;
+          font-weight: 600;
+        }
+
+        .auth-card-wrapper {
+          position: relative;
+          padding: 6px;
+          border-radius: var(--radius-md);
+          overflow: hidden;
+          width: 100%;
+          max-width: 520px;
+        }
+
+        .auth-card-border-anim {
+          position: absolute;
+          top: -50%;
+          left: -50%;
+          width: 200%;
+          height: 200%;
+          background: conic-gradient(transparent, #f97316, transparent 40%);
+          animation: rotate 4s linear infinite;
+          opacity: 1;
+        }
+
+        @keyframes rotate {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
 
         .auth-card {
+          position: relative;
+          z-index: 1;
           width: 100%;
           max-width: 520px;
+          padding: 3rem;
+          background: rgba(28, 28, 31, 0.95) !important;
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.1) !important;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
         }
 
         .auth-header {
@@ -137,6 +191,14 @@ const Register = () => {
         .auth-header h2 {
           font-size: 2.5rem;
           margin-bottom: 0.5rem;
+          color: #f4f4f5 !important;
+        }
+
+        .neo-input::-ms-reveal,
+        .neo-input::-ms-clear,
+        .neo-input::-webkit-reveal,
+        .neo-input::-webkit-clear {
+          display: none;
         }
 
         .auth-form {
@@ -161,7 +223,7 @@ const Register = () => {
         .form-group label {
           font-size: 0.875rem;
           font-weight: 600;
-          color: var(--text-secondary);
+          color: #a1a1aa !important;
           text-transform: uppercase;
           letter-spacing: 0.05em;
         }
@@ -176,7 +238,7 @@ const Register = () => {
           top: 50%;
           transform: translateY(-50%);
           background: none;
-          color: var(--text-muted);
+          color: #71717a !important;
         }
 
         .password-toggle:hover {
@@ -198,17 +260,76 @@ const Register = () => {
           color: var(--text-muted);
         }
 
-        @media (max-width: 968px) {
-          .auth-side-decor {
-            display: none;
+        .registration-notice {
+          text-align: center;
+          padding: 2rem;
+        }
+
+        .notice-icon {
+          font-size: 4rem;
+          margin-bottom: 1rem;
+        }
+
+        .registration-notice h3 {
+          font-size: 1.5rem;
+          color: var(--text-primary);
+          margin-bottom: 1rem;
+        }
+
+        .registration-notice p {
+          color: var(--text-muted);
+          line-height: 1.6;
+          margin-bottom: 1.5rem;
+        }
+
+        .notice-info {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: var(--radius-sm);
+          padding: 1.5rem;
+          text-align: left;
+          margin-top: 1.5rem;
+        }
+
+        .notice-info h4 {
+          color: var(--accent);
+          font-size: 1rem;
+          margin-bottom: 1rem;
+        }
+
+        .notice-info ul {
+          list-style: none;
+          padding: 0;
+        }
+
+        .notice-info li {
+          color: var(--text-muted);
+          padding: 0.5rem 0;
+          padding-left: 1.5rem;
+          position: relative;
+        }
+
+        .notice-info li:before {
+          content: "→";
+          position: absolute;
+          left: 0;
+          color: var(--accent);
+        }
+
+        @media (max-width: 768px) {
+          .auth-card {
+             padding: 2rem;
+          }
+           .auth-header h2 {
+            font-size: 2rem;
           }
           .form-row {
             flex-direction: column;
           }
         }
       `}</style>
-        </div>
-    );
+    </div>
+  );
 };
 
 export default Register;

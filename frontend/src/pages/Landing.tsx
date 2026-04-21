@@ -1,15 +1,24 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { GraduationCap, ChevronRight, ShieldCheck, Zap, Globe } from 'lucide-react';
+import GlareHover from '../components/GlareHover/GlareHover';
+
 
 const Landing = () => {
     const navigate = useNavigate();
+    const [clickedId, setClickedId] = useState<string | null>(null);
+
+    const handleCardClick = (role: { id: string; path: string; color: string }) => {
+        setClickedId(role.id);
+        setTimeout(() => navigate(role.path), 350);
+    };
 
     const roles = [
         {
             id: 'student',
             title: 'Student',
-            description: 'Participate in assessments, track proficiency, and manage your academic trajectory.',
+            description: "Your gateway to DES Pune University's online examinations. Stay organized and perform your best in every assessment.",
             icon: <GraduationCap size={40} />,
             color: 'var(--accent)',
             path: '/login?role=student'
@@ -17,7 +26,7 @@ const Landing = () => {
         {
             id: 'teacher',
             title: 'Teacher',
-            description: 'Engineer complex assessments, monitor scholar integrity, and analyze performance metrics.',
+            description: "Empower the academic journey with advanced tools for secure assessment design, live monitoring, and insightful evaluation.",
             icon: <ShieldCheck size={40} />,
             color: 'var(--success)',
             path: '/login?role=teacher'
@@ -32,8 +41,6 @@ const Landing = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="brand"
                 >
-                    <div className="brand-dot"></div>
-                    <span>EXAM PORTAL</span>
                 </motion.div>
             </header>
 
@@ -44,8 +51,7 @@ const Landing = () => {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.8, ease: "easeOut" }}
                     >
-                        Precision In <br />
-                        <span className="text-accent">Assessment.</span>
+                        Online Exam
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0 }}
@@ -53,7 +59,6 @@ const Landing = () => {
                         transition={{ delay: 0.4 }}
                         className="hero-subtitle"
                     >
-                        An immersive environment for rigorous evaluation. Powered by AI, designed for integrity.
                     </motion.p>
                 </section>
 
@@ -62,10 +67,19 @@ const Landing = () => {
                         <motion.div
                             key={role.id}
                             initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: 0.6 + (i * 0.2) }}
+                            animate={clickedId === role.id
+                                ? { opacity: 1, scale: [1, 1.06, 0.98, 1] }
+                                : { opacity: 1, scale: 1 }
+                            }
+                            transition={{ delay: clickedId === role.id ? 0 : 0.2 + (i * 0.2), duration: 0.35 }}
                             className="role-card-wrapper"
-                            onClick={() => navigate(role.path)}
+                            onClick={() => handleCardClick(role)}
+                            style={{
+                                boxShadow: clickedId === role.id
+                                    ? `0 0 32px 8px ${role.color}55, 0 0 0 2px ${role.color}`
+                                    : undefined,
+                                transition: 'box-shadow 0.2s ease'
+                            }}
                         >
                             <div
                                 className="role-card-border-anim"
@@ -73,16 +87,26 @@ const Landing = () => {
                                     background: `conic-gradient(transparent, ${role.color}, transparent 30%)`
                                 }}
                             ></div>
-                            <div className="role-card neo-card">
-                                <div className="role-icon" style={{ color: role.color }}>
+                            <GlareHover
+                                className="role-card neo-card"
+                                width="100%"
+                                height="100%"
+                                background="var(--surface-low)"
+                                borderRadius="0"
+                                borderColor="transparent"
+                                glareColor={role.color}
+                                glareOpacity={0.4}
+                                glareSize={170}
+                            >
+                                <div className="role-icon" style={{ color: role.color, transition: 'transform 0.2s', transform: clickedId === role.id ? 'scale(1.2)' : 'scale(1)' }}>
                                     {role.icon}
                                 </div>
-                                <h3>{role.title}</h3>
+                                <h3 style={{ color: clickedId === role.id ? role.color : undefined, transition: 'color 0.2s' }}>{role.title}</h3>
                                 <p>{role.description}</p>
                                 <button className="role-btn">
                                     Login <ChevronRight size={18} />
                                 </button>
-                            </div>
+                            </GlareHover>
                         </motion.div>
                     ))}
                 </div>
@@ -111,15 +135,6 @@ const Landing = () => {
                     padding: 0 4rem;
                     overflow: hidden;
                     position: relative;
-                }
-
-                .landing-root::before {
-                    content: "";
-                    position: absolute;
-                    inset: 0;
-                    background: radial-gradient(circle at 50% 50%, var(--surface-low), transparent 70%);
-                    opacity: 0.3;
-                    pointer-events: none;
                 }
 
                 .landing-header {
@@ -179,7 +194,7 @@ const Landing = () => {
 
                 .role-card-wrapper {
                     position: relative;
-                    padding: 2px;
+                    padding: 4px;
                     border-radius: var(--radius-sm);
                     overflow: hidden;
                     cursor: pointer;
@@ -199,7 +214,7 @@ const Landing = () => {
                     width: 200%;
                     height: 200%;
                     animation: rotate 4s linear infinite;
-                    opacity: 0.6;
+                    opacity: 0.8;
                     transition: opacity 0.3s;
                 }
 

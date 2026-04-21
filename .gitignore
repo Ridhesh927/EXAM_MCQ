@@ -29,3 +29,7 @@ yarn-error.log*
 # Other
 temp/
 tmp/
+
+
+# Prevent accidental commit of huge local dataset
+asset/test.csv

@@ -59,6 +59,7 @@ export default defineConfig([
       // Enable lint rules for React
       reactX.configs['recommended-typescript'],
       // Enable lint rules for React DOM
+      
       reactDom.configs.recommended,
     ],
     languageOptions: {
