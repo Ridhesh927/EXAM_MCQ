@@ -11,7 +11,8 @@ import {
     Search, 
     Filter,
     CheckCircle2,
-    Sparkles
+    Paperclip,
+    X
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
@@ -25,6 +26,9 @@ interface Job {
     requirements: string;
     salary_range: string;
     created_at: string;
+    pending_count?: number;
+    max_applications?: number | null;
+    expires_at?: string | null;
 }
 
 const JobBoard = () => {
@@ -34,11 +38,26 @@ const JobBoard = () => {
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [isApplying, setIsApplying] = useState(false);
     const [appliedJobs, setAppliedJobs] = useState<number[]>([]);
-    const [applySuccess, setApplySuccess] = useState<number | null>(null);
+    const [resumeFile, setResumeFile] = useState<File | null>(null);
 
     useEffect(() => {
         fetchJobs();
+        fetchMyApplications();
     }, []);
+
+    const fetchMyApplications = async () => {
+        try {
+            const token = getToken('student');
+            const res = await axios.get('/api/jobs/my-applications', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            type AppRecord = { job_id: number };
+            const ids: number[] = res.data.map((a: AppRecord) => a.job_id);
+            setAppliedJobs(ids);
+        } catch (err) {
+            console.error('Failed to fetch my applications:', err);
+        }
+    };
 
     const fetchJobs = async () => {
         try {
@@ -58,13 +77,23 @@ const JobBoard = () => {
         setIsApplying(true);
         try {
             const token = getToken('student');
-            const res = await axios.post(`/api/jobs/apply/${jobId}`, {}, {
-                headers: { 'Authorization': `Bearer ${token}` }
+            const formData = new FormData();
+            if (resumeFile) formData.append('resume', resumeFile);
+            await axios.post(`/api/jobs/apply/${jobId}`, formData, {
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'multipart/form-data'
+                }
             });
-            setApplySuccess(res.data.matchScore);
             setAppliedJobs(prev => [...prev, jobId]);
-        } catch (err: any) {
-            alert(err.response?.data?.message || 'Failed to apply');
+            setResumeFile(null);
+        } catch (err: unknown) {
+            const axiosErr = err as { response?: { status?: number; data?: { message?: string } }; message?: string };
+            if (axiosErr.response?.status === 400) {
+                setAppliedJobs(prev => prev.includes(jobId) ? prev : [...prev, jobId]);
+            } else {
+                console.error('Failed to apply:', axiosErr.response?.data?.message || axiosErr.message);
+            }
         } finally {
             setIsApplying(false);
         }
@@ -118,7 +147,7 @@ const JobBoard = () => {
                                     key={job.id}
                                     layoutId={`job-${job.id}`}
                                     className={`job-card ${selectedJob?.id === job.id ? 'active' : ''}`}
-                                    onClick={() => { setSelectedJob(job); setApplySuccess(null); }}
+                                    onClick={() => { setSelectedJob(job); }}
                                 >
                                     <div className="job-card-header">
                                         <h3>{job.title}</h3>
@@ -180,21 +209,45 @@ const JobBoard = () => {
                                                         <p>Our team will review your profile shortly.</p>
                                                     </div>
                                                 </div>
-                                                {applySuccess !== null && (
-                                                    <div className="ai-match-box">
-                                                        <Sparkles size={16} />
-                                                        <span>AI Match: <strong>{applySuccess}%</strong></span>
-                                                    </div>
-                                                )}
                                             </div>
                                         ) : (
-                                            <button 
-                                                className="apply-btn-primary"
-                                                onClick={() => handleApply(selectedJob.id)}
-                                                disabled={isApplying}
-                                            >
-                                                {isApplying ? 'Processing Application...' : 'Apply Now'}
-                                            </button>
+                                            <div className="apply-section">
+                                                <div className="resume-upload-area">
+                                                    <label className="resume-label" htmlFor="resume-upload">
+                                                        <Paperclip size={16} />
+                                                        <span>Attach Resume <em>(required · PDF/DOC, max 5MB)</em></span>
+                                                    </label>
+                                                    <input
+                                                        id="resume-upload"
+                                                        type="file"
+                                                        accept=".pdf,.doc,.docx"
+                                                        style={{ display: 'none' }}
+                                                        onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+                                                    />
+                                                    {resumeFile && (
+                                                        <div className="resume-chip">
+                                                            <span>{resumeFile.name}</span>
+                                                            <button onClick={() => setResumeFile(null)}><X size={14} /></button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <button 
+                                                    className="apply-btn-primary"
+                                                    onClick={() => handleApply(selectedJob.id)}
+                                                    disabled={
+                                                        isApplying || 
+                                                        !resumeFile || 
+                                                        (selectedJob.max_applications !== null && selectedJob.max_applications !== undefined && (selectedJob.pending_count || 0) >= selectedJob.max_applications) ||
+                                                        (selectedJob.expires_at ? new Date() > new Date(selectedJob.expires_at) : false)
+                                                    }
+                                                >
+                                                    {selectedJob.expires_at && new Date() > new Date(selectedJob.expires_at) 
+                                                        ? 'Posting Expired' 
+                                                        : (selectedJob.max_applications !== null && selectedJob.max_applications !== undefined && (selectedJob.pending_count || 0) >= selectedJob.max_applications 
+                                                            ? 'Capacity Full' 
+                                                            : (isApplying ? 'Processing Application...' : 'Apply Now'))}
+                                                </button>
+                                            </div>
                                         )}
                                     </footer>
                                 </motion.div>
@@ -253,6 +306,13 @@ const JobBoard = () => {
                     .req-text { white-space: pre-wrap; line-height: 1.7; color: var(--text-secondary); font-size: 1rem; }
 
                     .details-footer { border-top: 1px solid var(--border); padding-top: 2rem; }
+                    .apply-section { display: flex; flex-direction: column; gap: 1rem; }
+                    .resume-upload-area { display: flex; flex-direction: column; gap: 0.75rem; }
+                    .resume-label { display: inline-flex; align-items: center; gap: 0.6rem; padding: 0.65rem 1.25rem; border: 1.5px dashed var(--border); border-radius: 10px; cursor: pointer; font-size: 0.9rem; color: var(--text-secondary); transition: all 0.2s ease; width: fit-content; }
+                    .resume-label:hover { border-color: var(--accent); color: var(--accent); background: rgba(99,102,241,0.05); }
+                    .resume-label em { font-style: normal; font-size: 0.8rem; color: var(--text-muted); }
+                    .resume-chip { display: inline-flex; align-items: center; gap: 0.75rem; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.25); padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.85rem; color: var(--accent); }
+                    .resume-chip button { background: none; border: none; cursor: pointer; color: var(--accent); display: flex; align-items: center; padding: 0; }
                     .apply-btn-primary { width: 100%; height: 60px; background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%); border: none; border-radius: 14px; color: white; font-weight: 700; font-size: 1.1rem; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 8px 16px rgba(99, 102, 241, 0.3); }
                     .apply-btn-primary:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 12px 24px rgba(99, 102, 241, 0.4); }
                     .apply-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -261,9 +321,6 @@ const JobBoard = () => {
                     .applied-msg { display: flex; gap: 1.25rem; align-items: center; }
                     .applied-msg strong { font-size: 1.1rem; color: #10b981; display: block; }
                     .applied-msg p { margin: 0; font-size: 0.9rem; color: var(--text-secondary); }
-                    .ai-match-box { background: var(--surface-high); padding: 0.75rem 1.25rem; border-radius: 12px; display: flex; align-items: center; gap: 0.75rem; border: 1px solid var(--border); }
-                    .ai-match-box span { font-size: 0.85rem; }
-                    .ai-match-box strong { color: var(--accent); font-size: 1.1rem; }
 
                     .details-placeholder { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.5rem; color: var(--text-muted); opacity: 0.6; }
                     .details-placeholder h3 { margin: 0; }

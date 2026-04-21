@@ -7,9 +7,10 @@ import {
     Briefcase, 
     Users, 
     Eye, 
-    Sparkles,
     User,
-    BarChart3
+    BarChart3,
+    Trash2,
+    Download
 } from 'lucide-react';
 import DashboardLayout from '../../layouts/DashboardLayout';
 
@@ -18,8 +19,9 @@ interface Application {
     student_name: string;
     email: string;
     status: string;
-    ai_match_score: number;
     applied_at: string;
+    resume_filename: string | null;
+    ai_match_score?: number;
 }
 
 interface Job {
@@ -27,9 +29,13 @@ interface Job {
     title: string;
     company: string;
     location: string;
-    job_type: string;
-    status: string;
     created_at: string;
+    pending_count?: number;
+    total_count?: number;
+    avg_match_score?: number;
+    salary_range?: string;
+    expires_at?: string | null;
+    max_applications?: number | null;
 }
 
 const ManageJobs = () => {
@@ -37,6 +43,11 @@ const ManageJobs = () => {
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [applications, setApplications] = useState<Application[]>([]);
     const [showPostModal, setShowPostModal] = useState(false);
+    const [confirmAction, setConfirmAction] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void } | null>(null);
+
+    const totalPending = jobs.reduce((sum, job) => sum + (Number(job.pending_count) || 0), 0);
+    const totalApps = jobs.reduce((sum, job) => sum + (Number(job.total_count) || 0), 0);
+    const avgMatch = jobs.length > 0 ? (jobs.reduce((sum, job) => sum + (Number(job.avg_match_score) || 0), 0) / jobs.length).toFixed(0) : 0;
 
     const [newJob, setNewJob] = useState({
         title: '',
@@ -45,12 +56,10 @@ const ManageJobs = () => {
         job_type: 'Full-time',
         description: '',
         requirements: '',
-        salary_range: 'Competitive'
+        salary_range: 'Competitive',
+        max_applications: '',
+        expires_at: ''
     });
-
-    useEffect(() => {
-        fetchJobs();
-    }, []);
 
     const fetchJobs = async () => {
         try {
@@ -63,6 +72,11 @@ const ManageJobs = () => {
             console.error('Failed to fetch jobs:', err);
         }
     };
+
+    useEffect(() => {
+        // eslint-disable-next-line
+        fetchJobs();
+    }, []);
 
     const fetchApplications = async (jobId: number) => {
         try {
@@ -92,11 +106,87 @@ const ManageJobs = () => {
                 job_type: 'Full-time',
                 description: '',
                 requirements: '',
-                salary_range: 'Competitive'
+                salary_range: 'Competitive',
+                max_applications: '',
+                expires_at: ''
             });
-        } catch (err) {
+        } catch {
             alert('Failed to post job');
         }
+    };
+
+    const handleDeleteJob = (jobId: number, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setConfirmAction({
+            isOpen: true,
+            title: 'Delete Job Posting',
+            message: 'Are you sure you want to permanently delete this job posting and all its applications? This action cannot be undone.',
+            onConfirm: async () => {
+                try {
+                    const token = getToken('teacher');
+                    await axios.delete(`/api/jobs/${jobId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    setSelectedJob(null);
+                    fetchJobs();
+                } catch {
+                    alert('Failed to delete job');
+                }
+            }
+        });
+    };
+
+    const handleDeleteApplication = (appId: number) => {
+        setConfirmAction({
+            isOpen: true,
+            title: 'Delete Application',
+            message: 'Are you sure you want to delete this student\'s application permanently?',
+            onConfirm: async () => {
+                try {
+                    const token = getToken('teacher');
+                    await axios.delete(`/api/jobs/applications/${appId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if(selectedJob) fetchApplications(selectedJob.id);
+                } catch {
+                    alert('Failed to delete application');
+                }
+            }
+        });
+    };
+
+    const handleViewResume = async (appId: number) => {
+        try {
+            const token = getToken('teacher');
+            const res = await axios.get(`/api/jobs/applications/${appId}/resume`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                responseType: 'blob'
+            });
+            const fileURL = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+            window.open(fileURL, '_blank');
+        } catch {
+            alert('Failed to open resume. It may have been deleted.');
+        }
+    };
+
+    const handleExportCSV = () => {
+        if (!selectedJob || applications.length === 0) return;
+        
+        const headers = ['Student Name', 'Email', 'Applied On', 'Status', 'Resume Download Link'];
+        const csvContent = [
+            headers.join(','),
+            ...applications.map(app => {
+                const date = new Date(app.applied_at).toLocaleDateString();
+                const resumeLink = app.resume_filename ? `${window.location.origin}/api/jobs/applications/${app.id}/resume` : 'Not provided';
+                return `"${app.student_name}","${app.email}","${date}","${app.status}","${resumeLink}"`;
+            })
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `Applicants_${selectedJob.title.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
     };
 
     return (
@@ -123,8 +213,22 @@ const ManageJobs = () => {
                     <div className="stat-card neo-card">
                         <div className="stat-icon green"><Users size={24} /></div>
                         <div className="stat-info">
-                            <h3>42</h3>
+                            <h3>{totalPending}</h3>
                             <p>Pending Applications</p>
+                        </div>
+                    </div>
+                    <div className="stat-card neo-card">
+                        <div className="stat-icon yellow" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}><Users size={24} /></div>
+                        <div className="stat-info">
+                            <h3>{totalApps}</h3>
+                            <p>Total Applied</p>
+                        </div>
+                    </div>
+                    <div className="stat-card neo-card">
+                        <div className="stat-icon blue" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}><BarChart3 size={24} /></div>
+                        <div className="stat-info">
+                            <h3>{avgMatch}%</h3>
+                            <p>Avg. Match Score</p>
                         </div>
                     </div>
                 </div>
@@ -143,15 +247,35 @@ const ManageJobs = () => {
                                 >
                                     <div className="posting-info">
                                         <h4>{job.title}</h4>
-                                        <div className="posting-meta">
+                                        <div className="posting-meta" style={{ flexWrap: 'wrap' }}>
                                             <span>{job.job_type}</span>
                                             <span>•</span>
-                                            <span>{new Date(job.created_at).toLocaleDateString()}</span>
+                                            <span>{job.location}</span>
+                                            <span>•</span>
+                                            <span>{job.salary_range}</span>
+                                        </div>
+                                        <div className="posting-meta" style={{ marginTop: '0.25rem', opacity: 0.7 }}>
+                                            <span>Created: {new Date(job.created_at).toLocaleDateString()}</span>
+                                            {job.expires_at && (
+                                                <>
+                                                    <span>•</span>
+                                                    <span>Expires: {new Date(job.expires_at).toLocaleDateString()}</span>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="status-indicator">
-                                        <div className={`dot ${job.status.toLowerCase()}`}></div>
-                                        {job.status}
+                                    <div className="posting-actions-group">
+                                        <div className="status-indicator">
+                                            <div className={`dot ${job.status.toLowerCase()}`}></div>
+                                            {job.status}
+                                        </div>
+                                        <button 
+                                            className="delete-icon-btn" 
+                                            onClick={(e) => handleDeleteJob(job.id, e)}
+                                            title="Delete Job Posting"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
                                     </div>
                                 </div>
                             ))}
@@ -163,8 +287,17 @@ const ManageJobs = () => {
                             <>
                                 <div className="pane-header">
                                     <h3>Applicants for <strong>{selectedJob.title}</strong></h3>
-                                    <div className="header-actions">
-                                        <span>{applications.length} Students</span>
+                                    <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{applications.length} Students</span>
+                                        {applications.length > 0 && (
+                                            <button 
+                                                className="neo-btn-secondary" 
+                                                onClick={handleExportCSV}
+                                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                                            >
+                                                <Download size={14} /> Export CSV
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="applicants-table-container">
@@ -173,7 +306,7 @@ const ManageJobs = () => {
                                             <tr>
                                                 <th>Student</th>
                                                 <th>Email</th>
-                                                <th>Match Score</th>
+                                                <th>AI Match</th>
                                                 <th>Applied On</th>
                                                 <th>Status</th>
                                                 <th>Action</th>
@@ -191,23 +324,52 @@ const ManageJobs = () => {
                                                     <td>{app.email}</td>
                                                     <td>
                                                         <div className="match-score-badge" style={{ 
-                                                            background: app.ai_match_score > 70 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                                                            color: app.ai_match_score > 70 ? '#10b981' : '#f59e0b'
+                                                            padding: '0.2rem 0.5rem', 
+                                                            borderRadius: '6px', 
+                                                            fontSize: '0.8rem', 
+                                                            fontWeight: 700,
+                                                            background: (app.ai_match_score || 0) > 75 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                                                            color: (app.ai_match_score || 0) > 75 ? '#10b981' : '#f59e0b',
+                                                            width: 'fit-content'
                                                         }}>
-                                                            <Sparkles size={14} />
-                                                            {app.ai_match_score}%
+                                                            {app.ai_match_score || 0}%
                                                         </div>
                                                     </td>
                                                     <td>{new Date(app.applied_at).toLocaleDateString()}</td>
                                                     <td><span className={`status-pill ${app.status.toLowerCase()}`}>{app.status}</span></td>
                                                     <td>
-                                                        <button className="view-btn"><Eye size={18} /></button>
+                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                            {app.resume_filename ? (
+                                                                <button
+                                                                    className="view-btn resume-dl-btn"
+                                                                    onClick={() => handleViewResume(app.id)}
+                                                                    title="View Resume"
+                                                                >
+                                                                    <Eye size={18} />
+                                                                </button>
+                                                            ) : (
+                                                                <button 
+                                                                    className="view-btn" 
+                                                                    onClick={() => alert('No resume attached to this application.')}
+                                                                    title="No Resume"
+                                                                >
+                                                                    <Eye size={18} style={{ opacity: 0.5 }} />
+                                                                </button>
+                                                            )}
+                                                            <button 
+                                                                className="view-btn trash-btn" 
+                                                                onClick={() => handleDeleteApplication(app.id)}
+                                                                title="Delete Application"
+                                                            >
+                                                                <Trash2 size={18} />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
                                             {applications.length === 0 && (
                                                 <tr>
-                                                    <td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                                                    <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                                                         No applications received yet for this position.
                                                     </td>
                                                 </tr>
@@ -219,7 +381,7 @@ const ManageJobs = () => {
                         ) : (
                             <div className="no-selection">
                                 <BarChart3 size={48} />
-                                <p>Select a job posting to view its applications and AI ranking.</p>
+                                <p>Select a job posting to view its applications.</p>
                             </div>
                         )}
                     </div>
@@ -304,6 +466,40 @@ const ManageJobs = () => {
                                             onChange={e => setNewJob({...newJob, requirements: e.target.value})}
                                         ></textarea>
                                     </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Salary Range</label>
+                                            <input 
+                                                type="text" 
+                                                className="neo-input" 
+                                                placeholder="e.g. $50k - $80k or Competitive"
+                                                value={newJob.salary_range}
+                                                onChange={e => setNewJob({...newJob, salary_range: e.target.value})}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Application Limit (Optional)</label>
+                                            <input 
+                                                type="number" 
+                                                className="neo-input" 
+                                                placeholder="e.g. 60"
+                                                value={newJob.max_applications}
+                                                onChange={e => setNewJob({...newJob, max_applications: e.target.value})}
+                                                min="1"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Expiration Date (Optional)</label>
+                                            <input 
+                                                type="date" 
+                                                className="neo-input" 
+                                                value={newJob.expires_at}
+                                                onChange={e => setNewJob({...newJob, expires_at: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
                                     <div className="modal-actions">
                                         <button 
                                             type="button" 
@@ -313,6 +509,41 @@ const ManageJobs = () => {
                                         <button type="submit" className="neo-btn-primary">Broadcast Job</button>
                                     </div>
                                 </form>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+
+                <AnimatePresence>
+                    {confirmAction?.isOpen && (
+                        <div className="modal-overlay" onClick={() => setConfirmAction(null)}>
+                            <motion.div 
+                                className="modal-card neo-card" 
+                                style={{ maxWidth: '450px' }}
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                onClick={e => e.stopPropagation()}
+                            >
+                                <div className="modal-header">
+                                    <h2 style={{ color: '#ef4444' }}>{confirmAction.title}</h2>
+                                    <p>{confirmAction.message}</p>
+                                </div>
+                                <div className="modal-actions" style={{ marginTop: '2rem' }}>
+                                    <button 
+                                        type="button" 
+                                        className="neo-btn-secondary" 
+                                        onClick={() => setConfirmAction(null)}
+                                    >Cancel</button>
+                                    <button 
+                                        type="button" 
+                                        className="neo-btn-primary" 
+                                        style={{ background: '#ef4444', color: '#fff', borderColor: '#ef4444' }}
+                                        onClick={() => {
+                                            confirmAction.onConfirm();
+                                            setConfirmAction(null);
+                                        }}
+                                    >Delete Permanently</button>
+                                </div>
                             </motion.div>
                         </div>
                     )}
@@ -337,14 +568,18 @@ const ManageJobs = () => {
                     .pane-header h3 { font-size: 1.1rem; margin: 0; }
                     
                     .postings-list { flex: 1; overflow-y: auto; padding: 1rem; }
-                    .posting-item { padding: 1.25rem; border-radius: 12px; cursor: pointer; border: 1px solid transparent; transition: all 0.2s ease; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; }
+                    .posting-item { padding: 1.25rem; border-radius: 12px; cursor: pointer; border: 1px solid transparent; transition: all 0.2s ease; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: flex-start; }
                     .posting-item:hover { background: var(--surface-high); }
                     .posting-item.selected { background: rgba(99, 102, 241, 0.08); border-color: var(--accent); }
+                    .posting-info { flex: 1; }
                     .posting-info h4 { margin: 0 0 0.5rem; font-size: 1rem; }
                     .posting-meta { display: flex; gap: 0.5rem; font-size: 0.75rem; color: var(--text-muted); }
+                    .posting-actions-group { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; }
                     .status-indicator { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; font-weight: 600; }
                     .status-indicator .dot { width: 8px; height: 8px; border-radius: 50%; }
                     .status-indicator .dot.open { background: #10b981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.5); }
+                    .delete-icon-btn { background: none; border: none; color: var(--text-muted); padding: 0.2rem; cursor: pointer; border-radius: 4px; transition: 0.2s; }
+                    .delete-icon-btn:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
 
                     .applications-pane { min-height: 600px; display: flex; flex-direction: column; }
                     .applicants-table-container { flex: 1; overflow-x: auto; }
@@ -354,11 +589,13 @@ const ManageJobs = () => {
                     
                     .student-profile { display: flex; align-items: center; gap: 1rem; }
                     .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--surface-high); display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
-                    .match-score-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 700; font-size: 0.85rem; }
                     .status-pill { padding: 0.25rem 0.75rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
                     .status-pill.applied { background: rgba(99, 102, 241, 0.1); color: var(--accent); }
-                    .view-btn { padding: 0.5rem; background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); cursor: pointer; transition: all 0.2s ease; }
+                    .view-btn { padding: 0.5rem; background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; }
                     .view-btn:hover { color: var(--accent); border-color: var(--accent); }
+                    .trash-btn:hover { color: #ef4444; border-color: #ef4444; }
+                    .resume-dl-btn { text-decoration: none; color: var(--text-muted); }
+                    .resume-dl-btn:hover { color: #10b981; border-color: #10b981; }
 
                     .no-selection { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; color: var(--text-muted); opacity: 0.6; }
                     
